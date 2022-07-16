@@ -31,8 +31,8 @@ module.exports.person = async (req, res) => {
 
 module.exports.company = async (req, res) => {
   //["CC", "CE", "PEP", "CCVE"]
-  const { nit } = req.body;
-  const data = await companyQuery(nit);
+  const { nit, method } = req.body;
+  const data = await companyQuery(nit, method);
   return res.json(data);
 };
 
