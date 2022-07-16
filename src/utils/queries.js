@@ -176,7 +176,7 @@ module.exports.companyQuery = async (nit, method = 1) => {
   const browser = await puppeteer.launch({
     timeout: 1000000,
     args: ['--no-sandbox', '--disabled-setupid-sandbox'],
-    headless: false,
+    headless: true,
     defaultViewport: null
   });
 
