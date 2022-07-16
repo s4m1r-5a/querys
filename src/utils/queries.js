@@ -235,6 +235,7 @@ module.exports.companyQuery = async (nit, method = 1) => {
     });
 
     datos.table = table;
+    await browser.close();
 
     console.log(datos);
     return datos;
