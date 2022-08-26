@@ -38,6 +38,7 @@ module.exports.verifyToken = async (req, res, next) => {
 
 module.exports.verifyTradeToken = (req, res, next) => {
   const token = req.headers['x-access-token'];
+
   if (!token) return res.status(401).json({ message: 'Ningún token' });
 
   jwt.verify(token, config.SECRET, async (err, authData) => {

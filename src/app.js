@@ -18,7 +18,7 @@ const app = express();
 
 // Settings
 app.set('pkg', pkg);
-app.set('port', process.env.PORT || 3000);
+app.set('port', process.env.PORT || 9000);
 app.set('json spaces', 4);
 
 // Middlewares
