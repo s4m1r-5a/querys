@@ -1,32 +1,6 @@
 const puppeteer = require('puppeteer');
 //const doctype = require('../controllers/query.controller');
-const webConsulPerson = async (page, cont = 0) => {
-  const tipoDoc = '#ddlTipoID';
-  const url = 'https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1';
-  try {
-    /* await Promise.all(
-      await page.goto(
-        'https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1'
-      ),
-      page.waitForNavigation()
-    ); */
-
-    await page.goto(url);
-    await page.setViewport({ width: 1040, height: 682 });
-
-    //await navigationPromise;
-
-    await page.waitForSelector(tipoDoc, { visible: true });
-    return true;
-  } catch (error) {
-    if (cont > 3) return false;
-    console.log(error);
-    cont++;
-    await setTimeout(async () => await webConsulPerson(page), 3000);
-  }
-};
 let browser;
-
 (async () => {
   browser = await puppeteer.launch({
     args: [
@@ -34,10 +8,33 @@ let browser;
       '--disabled-setupid-sandbox',
       '--disable-dev-shm-usage'
     ],
-    headless: false,
+    headless: true,
     defaultViewport: null
   });
 })();
+
+const webConsulPerson = async (cont = 0) => {
+  const tipoDoc = '#ddlTipoID';
+  const url = 'https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1';
+
+  //const pages = await browser.pages(); //.newPage();
+  const page = await browser.newPage(); // await pages[0]; //
+  await page.setDefaultNavigationTimeout(100000);
+  console.log('hasta aqui vamos bien 2');
+  try {
+    await page.goto(url);
+    await page.setViewport({ width: 1040, height: 682 });
+
+    await page.waitForSelector(tipoDoc, { visible: true });
+    return page;
+  } catch (error) {
+    if (cont > 3) return false;
+    console.log(error, ' Este es el error del intento numero: ', cont);
+    cont++;
+    await page.close();
+    await setTimeout(async () => await webConsulPerson(cont), 3000);
+  }
+};
 
 const documentPerson = async (type, doc) => {
   /* type
@@ -72,23 +69,15 @@ const documentPerson = async (type, doc) => {
   const tipoDoc = '#ddlTipoID';
   const cc = '#ddlTipoID > option:nth-child(2)';
 
-  /* browser = await puppeteer.launch({
-    args: [
-      '--no-sandbox',
-      '--disabled-setupid-sandbox',
-      '--disable-dev-shm-usage'
-    ],
-    headless: false,
-    defaultViewport: null
-  }); */
   console.log('hasta aqui vamos bien');
-  //const pages = await browser.pages(); //.newPage();
-  const page = await browser.newPage(); // await pages[0]; //
+
+  /* const page = await browser.newPage(); // await pages[0]; //
   await page.setDefaultNavigationTimeout(100000);
 
-  console.log('hasta aqui vamos bien 2');
-  const pg = await webConsulPerson(page);
-  console.log('estado de la pagina ', pg);
+  console.log('hasta aqui vamos bien 2'); */
+  const page = await webConsulPerson();
+  console.log('estado de la pagina ', page);
+  if (!page) return { std: false };
   //await page.emulateNetworkConditions(slow3G);
   /* await page.goto('https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1');
 
@@ -202,8 +191,8 @@ module.exports.documentQuery = async (type, doc) => {
     return await documentPerson(type, doc);
   } catch (error) {
     //await browser.close();
-    console.log(error);
-    return await documentPerson(type, doc);
+    console.log(error, ' Este es el error de la funcion en total');
+    return { std: false };
   }
 };
 
@@ -211,10 +200,10 @@ module.exports.usuryRateQuery = async () => {
   //const slow3G = puppeteer.networkConditions['Slow 3G'];
   const Tex =
     '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
-  browser = await puppeteer.launch({
+  /* browser = await puppeteer.launch({
     timeout: 1000000,
     args: ['--no-sandbox', '--disabled-setupid-sandbox']
-  });
+  }); */
   const page = await browser.newPage();
   await page.setDefaultNavigationTimeout(1000000);
   //await page.emulateNetworkConditions(slow3G);
@@ -229,20 +218,20 @@ module.exports.usuryRateQuery = async () => {
   }, Tex);
   console.log('Tasa:', tasa);
 
-  await browser.close();
+  await page.close();
   return tasa / 100;
 };
 
 module.exports.companyQuery = async (nit, method = 2) => {
-  browser = await puppeteer.launch({
+  /* browser = await puppeteer.launch({
     timeout: 1000000,
     args: ['--no-sandbox', '--disabled-setupid-sandbox'],
     headless: false,
     defaultViewport: null
-  });
+  }); */
 
   const page = await browser.newPage();
-  const navigationPromise = page.waitForNavigation();
+  //const navigationPromise = page.waitForNavigation();
   await page.setDefaultNavigationTimeout(1000000);
   //await page.emulateNetworkConditions(slow3G);
 
@@ -265,7 +254,7 @@ module.exports.companyQuery = async (nit, method = 2) => {
 
     await page.setViewport({ width: 1040, height: 682 });
 
-    await navigationPromise;
+    //await navigationPromise;
 
     await page.waitForSelector('#imprimir > table > tbody > tr:nth-child(1)', {
       visible: true
@@ -302,7 +291,7 @@ module.exports.companyQuery = async (nit, method = 2) => {
     });
 
     datos.table = table;
-    await browser.close();
+    await page.close();
 
     console.log(datos);
     return datos;
@@ -311,7 +300,7 @@ module.exports.companyQuery = async (nit, method = 2) => {
 
     await page.setViewport({ width: 1040, height: 682 });
 
-    await navigationPromise;
+    //await navigationPromise;
 
     await page.waitForSelector('#txtNIT', { visible: true });
     await page.type('#txtNIT', nit);
@@ -402,9 +391,9 @@ module.exports.companyQuery = async (nit, method = 2) => {
       docRepresentantes: reprecntant
     };
 
-    console.log(reprecntant);
-    await browser.close();
-    await page.waitForTimeout(4000);
+    console.log(datosConsultados);
+    await page.close();
+    await page.waitForTimeout(2000);
     console.log('pasaron 4 segundos');
     try {
       const representante = (await documentPerson('1', reprecntant[0])).data;
