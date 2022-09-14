@@ -5,7 +5,8 @@ const { sequelize } = require('./models/index'); //Config of DataBase
 //const notifications = require('./utils/notifications');
 
 sequelize
-  .authenticate()
+  //.authenticate()
+  .sync({ force: false })
   .then(async () => {
     console.log('Database connection established successfully.');
     console.log('Starting the Server Apps...');

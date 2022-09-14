@@ -1,4 +1,5 @@
 const puppeteer = require('puppeteer');
+const { getPerson } = require('../repositories/persons.repository');
 //const doctype = require('../controllers/query.controller');
 let browser;
 (async () => {
@@ -12,6 +13,11 @@ let browser;
     defaultViewport: null
   });
 })();
+
+const tpe = new Map();
+tpe.set('1', 'CC');
+tpe.set('4', 'CE');
+tpe.set('5', 'PEP');
 
 const webConsulPerson = async (cont = 0) => {
   const tipoDoc = '#ddlTipoID';
@@ -71,53 +77,47 @@ const documentPerson = async (type, doc) => {
 
   console.log('hasta aqui vamos bien');
 
-  /* const page = await browser.newPage(); // await pages[0]; //
-  await page.setDefaultNavigationTimeout(100000);
-
-  console.log('hasta aqui vamos bien 2'); */
   const page = await webConsulPerson();
-  console.log('estado de la pagina ', page);
   if (!page) return { std: false };
-  //await page.emulateNetworkConditions(slow3G);
-  /* await page.goto('https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1');
-
-  await page.setViewport({ width: 1040, height: 682 });
-
-  await navigationPromise;
-  await navigationPromise;
-  await navigationPromise;
-
-  await page.waitForSelector(tipoDoc); */
 
   await page.click(tipoDoc);
   await page.select(tipoDoc, type);
   await page.type('#txtNumID', doc);
-  const Query = await page.$eval('#lblPregunta', e => e.innerText);
-  let res = pregResp.filter(e => e.pre === Query);
-  //console.log(Query, res[0]?.res);
+  //const Query = await page.$eval('#lblPregunta', e => e.innerText);
+  //let res; //= pregResp.find(e => e.pre === Query) || false;
+  let info; //= await page.$eval('#ValidationSummary1', e => e.innerText);
+  let ciclo = false;
 
-  while (!res[0]?.res) {
-    await page.click('#ImageButton1', { delay: 500 });
+  while (!ciclo) {
     await page.waitForSelector('#lblPregunta');
     const Query = await page.$eval('#lblPregunta', e => e.innerText);
-    res = pregResp.filter(e => e.pre === Query);
-    //console.log(Query, res[0]?.res, !!res[0]?.res);
+    const res = pregResp.find(e => e.pre === Query) || false;
+
+    if (res) {
+      await page.type('#txtRespuestaPregunta', res?.res);
+      await page.click('#btnConsultar');
+      await page.waitForTimeout(2000);
+      info = await page.$eval('#ValidationSummary1', e => e.innerText);
+      ciclo =
+        res &&
+        !/Falla la validación del CAPTCHA.|El valor ingresado para la respuesta no responde a la pregunta./.test(
+          info.trim()
+        );
+
+      if (!ciclo) {
+        await page.close();
+        return await documentPerson(type, doc);
+      }
+    }
+
+    if (!ciclo) await page.click('#ImageButton1', { delay: 1000 });
   }
-  await page.type('#txtRespuestaPregunta', res[0]?.res);
-  await page.click('#btnConsultar');
-  await page.waitForTimeout(3000);
-  let Nombres = await page.$$eval('#divSec > div.datosConsultado > span', e =>
+
+  const Nombres = await page.$$eval('#divSec > div.datosConsultado > span', e =>
     e.map(r => r.innerText)
   );
-  let info = await page.$eval('#ValidationSummary1', e => e.innerText);
+  console.log(info.trim(), info === '\n\n', info === '\n\n\t', Nombres, ciclo);
 
-  while (!Nombres.length && info === '\n\n') {
-    await page.waitForSelector('#divSec > div > span', { visible: true });
-    Nombres = await page.$$eval('#divSec > div.datosConsultado > span', e =>
-      e.map(r => r.innerText)
-    );
-    info = await page.$eval('#ValidationSummary1', e => e.innerText);
-  }
   let datos;
   if (Nombres.length) {
     const tex = '#divSec > div.SeccionAnt h2';
@@ -166,15 +166,12 @@ const documentPerson = async (type, doc) => {
       .trim();
 
     datos = {
-      std: true,
-      data: {
-        documentType: type,
-        documentNumber: doc,
-        fullName,
-        firstName,
-        lastName,
-        arrayName: Nombres
-      },
+      docType: tpe.get(type),
+      docNumber: doc,
+      fullName,
+      firstName,
+      lastName,
+      arrayName: Nombres,
       Antecedentes
     };
 
@@ -223,17 +220,23 @@ module.exports.usuryRateQuery = async () => {
 };
 
 module.exports.companyQuery = async (nit, method = 2) => {
-  /* browser = await puppeteer.launch({
-    timeout: 1000000,
-    args: ['--no-sandbox', '--disabled-setupid-sandbox'],
-    headless: false,
-    defaultViewport: null
-  }); */
-
   const page = await browser.newPage();
   //const navigationPromise = page.waitForNavigation();
   await page.setDefaultNavigationTimeout(1000000);
   //await page.emulateNetworkConditions(slow3G);
+
+  const existElement = async selector => {
+    const text = await page.evaluate(selector => {
+      const element = document.querySelector(selector);
+      if (element) {
+        return element.textContent;
+      }
+
+      return false;
+    });
+    console.log(text);
+    return text;
+  };
 
   if (method === 1) {
     const datos = {
@@ -305,7 +308,7 @@ module.exports.companyQuery = async (nit, method = 2) => {
     await page.waitForSelector('#txtNIT', { visible: true });
     await page.type('#txtNIT', nit);
     await page.click('#btnConsultaNIT');
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(2000);
     await page.waitForSelector('#rmTable2', { visible: true });
     let name = await page.$eval(
       '#rmTable2 > tbody > tr > td:nth-child(2)',
@@ -330,30 +333,25 @@ module.exports.companyQuery = async (nit, method = 2) => {
     await page.waitForSelector(
       'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(1) > td:nth-child(2)'
     );
-    const matricula = await page.$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(1) > td:nth-child(2)',
-      e => e.innerText
+    await page.waitForTimeout(1500);
+    let cardtexto = await existElement('#card-info');
+    console.log(cardtexto);
+    if (cardtexto) {
+      await page.click('#card-info > input[type=submit]');
+      await page.waitForSelector(
+        'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(1) > td:nth-child(2)'
+      );
+      while (cardtexto) {
+        cardtexto = await existElement('#card-info');
+        if (cardtexto) await page.click('#card-info > input[type=submit]');
+      }
+    }
+
+    arrayData = await page.$$eval(
+      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr',
+      e => e.map(r => r.innerText.split('\t'))
     );
-    const estado = await page.$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(6) > td:nth-child(2)',
-      e => e.innerText
-    );
-    const sociedad = await page.$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(7) > td:nth-child(2)',
-      e => e.innerText
-    );
-    const organizacion = await page.$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(8) > td:nth-child(2)',
-      e => e.innerText
-    );
-    const categoria = await page.$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(9) > td:nth-child(2)',
-      e => e.innerText
-    );
-    const actualizado = await page.$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(10) > td:nth-child(2)',
-      e => e.innerText
-    );
+
     const actividades = await page.$$eval(
       'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-4 > div:nth-child(3) > div.card-body > ul > li',
       e => e.map(r => r.innerText)
@@ -366,7 +364,6 @@ module.exports.companyQuery = async (nit, method = 2) => {
       await page.waitForSelector('#txtFacultades', { visible: true });
       texto = await page.$eval('#txtFacultades', e => e.innerText);
     }
-
     const reprecntant = texto
       .replace(/\./g, '')
       .split(/[^0-9]/)
@@ -380,28 +377,48 @@ module.exports.companyQuery = async (nit, method = 2) => {
     const datosConsultados = {
       name,
       city,
-      matricula,
-      estado,
-      sociedad,
-      organizacion,
-      categoria,
-      actualizado,
       actividades,
-      representante: reprecntant,
-      docRepresentantes: reprecntant
+      docRepresentantes: reprecntant,
+      texto
     };
+    arrayData.map((e, i) => {
+      e[0] === 'Numero de Matricula' && (datosConsultados.matricula = e[1]);
+      e[0] === 'Fecha de Matricula' && (datosConsultados.date = e[1]);
+      e[0] === 'Estado de la matricula' && (datosConsultados.estado = e[1]);
+      e[0] === 'Tipo de Sociedad' && (datosConsultados.sociedad = e[1]);
+      e[0] === 'Tipo de Organización' && (datosConsultados.organizacion = e[1]);
+      e[0] === 'Categoria de la Matricula' &&
+        (datosConsultados.categoria = e[1]);
+      e[0] === 'Fecha Ultima Actualización' &&
+        (datosConsultados.actualizado = e[1]);
+    });
 
-    console.log(datosConsultados);
     await page.close();
     await page.waitForTimeout(2000);
-    console.log('pasaron 4 segundos');
+    console.log(reprecntant);
     try {
-      const representante = (await documentPerson('1', reprecntant[0])).data;
-      representante && (datosConsultados.representante = representante);
+      for (var i = 0; i < reprecntant.length; i++) {
+        const person =
+          (await getPerson('CC', `${parseFloat(reprecntant[i])}`))
+            ?.dataValues || false;
+
+        if (person && !i) datosConsultados.representantes = [person];
+        else if (person) datosConsultados.representantes.push(person);
+        else {
+          const represent = await documentPerson(
+            '1',
+            `${parseFloat(reprecntant[i])}`
+          );
+
+          if (represent && !i) datosConsultados.representantes = [represent];
+          else if (represent) datosConsultados.representantes.push(represent);
+        }
+      }
     } catch (error) {
       console.log(error);
     }
 
+    console.log(datosConsultados);
     return datosConsultados;
   }
 };
