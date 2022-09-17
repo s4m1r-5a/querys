@@ -13,7 +13,9 @@ const getCompany = nit =>
         attributes: { exclude: ['id', 'createdAt', 'updatedAt'] }
       }
     ],
-    attributes: { exclude: ['id', 'updatedAt', 'agent', 'texto'] }
+    attributes: {
+      exclude: ['id', 'updatedAt', 'agent', 'texto', 'representantes']
+    }
   });
 
 const getCompanies = async () => await Company.findAll();
