@@ -9,7 +9,8 @@ let browser;
       '--disabled-setupid-sandbox',
       '--disable-dev-shm-usage'
     ],
-    headless: true,
+    headless: 'new',  // false, - Ejecutar el navegador en modo no headless (visible)
+    //slowMo: 500,
     defaultViewport: null
   });
 })();
@@ -194,20 +195,21 @@ module.exports.documentQuery = async (type, doc) => {
 };
 
 module.exports.usuryRateQuery = async () => {
-  //const slow3G = puppeteer.networkConditions['Slow 3G'];
   const Tex =
     '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
-  /* browser = await puppeteer.launch({
-    timeout: 1000000,
-    args: ['--no-sandbox', '--disabled-setupid-sandbox']
-  }); */
   const page = await browser.newPage();
   await page.setDefaultNavigationTimeout(1000000);
   //await page.emulateNetworkConditions(slow3G);
   await page.goto(
     'https://www.larepublica.co/indicadores-economicos/bancos/tasa-de-usura'
   );
+  // Esperar a que el selector esté disponible
   await page.waitForSelector(Tex);
+
+  const butonYear =
+    '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.quote-graph-bar > div.graph-buttons > button:nth-child(4)';
+  await page.locator(butonYear).click();
+  //await page.click(butonYear);
   const tasa = await page.evaluate(Tex => {
     return parseFloat(
       document.querySelector(Tex).innerText.slice(0, -2).replace(/,/, '.')
@@ -422,3 +424,23 @@ module.exports.companyQuery = async (nit, method = 2) => {
     return datosConsultados;
   }
 };
+
+/* fetch('https://ruesapi.rues.org.co/api/ConsultaExpediente?ID_RM=90047174112', {
+  headers: {
+    accept: 'application/json, text/plain, ',
+    'accept-language': 'es-ES,es;q=0.9',
+    authorization:
+      'Bearer j0cyS5vrl9VbKA2VDEeXtyjYfbDwrf26-4fVOZspU13X5ZnomZpu3JdFCXfXSAHDPhKLBWAtyxT4SuyCXqcaEwo_s-EI6uVPdPh01pWS7zUB6SfaCPEsYNDDlijN8TU4Gf5kh6gpf1rI2FMz-WR9vfN4XQOkdyH9TGwJOrYNgOSocAOdQL9H0b_d6inNmqCByuL-lZabz1O4LCxiRvxPoDHTSfamBFmycn9AygaHnPamEYdHqwKHcCKEXPgNY-MzlbO_raGkKBZg35x20UgVlVK6b1KafU6OsMCM-8Bq_Qkw5OanWvToZrd2J7pA7zG4Geg17foCehDtBgttnvoBBryvM54xtFdgugiDemQt8tf1N7KMq7bmHASS_ZZUGtPANIzaGwN-rMa6pqyGl0kGC7NZTfwP14HqV_IjJBdzoHjj4QckbtX9-g7aZze9RIEGMa_shuLHyUwZ1xwRFuRy74Y3--ezG1-RWND-mt5p95kv1eUCRh3eZtXCTPIlsbCoCIS3oi6Zx4Hld-ZgmHFpyY098FasZhvvV28IJHI0YhbIeoXRayA1aPMw-nHXf1-T',
+    'sec-ch-ua':
+      '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    Referer: 'https://ruesfront.rues.org.co/',
+    'Referrer-Policy': 'strict-origin-when-cross-origin'
+  },
+  body: null,
+  method: 'POST'
+}); */

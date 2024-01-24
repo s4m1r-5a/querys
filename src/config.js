@@ -11,7 +11,7 @@ module.exports = {
     secure: true,
     auth: {
       user: "inmovily@gmail.com",
-      pass: "pabhzmxyuyyiwvrk",
+      pass: "ubhohzssrwojhpdw",
     },
   },
   API_URL: process.env.API_URL, //https://api.binance.com/api https://testnet.binance.vision/api

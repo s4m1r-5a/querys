@@ -4,13 +4,10 @@ const {
   usuryRateQuery,
   companyQuery
 } = require('../utils/queries');
-const {
-  consultPerson,
-  consultCompany,
-  createUsury
-} = require('../utils/verifik');
+const { consultPerson, consultCompany } = require('../utils/verifik');
 const {
   getUsurys,
+  createUsury,
   getUsurysBySearch
 } = require('../repositories/usurys.repository');
 const {
@@ -24,6 +21,8 @@ const {
   getPersons,
   createPerson
 } = require('../repositories/persons.repository');
+const { businessQuery } = require('../services/enterpriseQueryApi');
+const { checkUsuryRate } = require('../services/servicesQueryApi');
 
 const type = new Map();
 type.set('CC', '1');
@@ -61,6 +60,9 @@ module.exports.person = async (req, res) => {
 module.exports.company = async (req, res) => {
   //["CC", "CE", "PEP", "CCVE"]
   const { nit, method } = req.body;
+  const busines = await businessQuery(nit);
+  if (busines) return res.json(busines);
+
   const company = await getCompany(nit);
   if (company) return res.json(company);
 
@@ -100,18 +102,17 @@ module.exports.usury = async (req, res) => {
   const currentDate = moment().startOf('month').format('YYYY-MM-DD');
   const diff = moment().diff(month, 'months');
   let rate;
-
-  if (diff > 0) rate = await getUsurysBySearch({ date: month });
+  
+  if (diff > 12) rate = await getUsurysBySearch({ date: month });
   else {
     rate = await getUsurysBySearch({ date: currentDate });
     if (!rate) {
-      const Tasa = await usuryRateQuery();
-      const data = { annualRate: Tasa, date: currentDate };
+      const data = await checkUsuryRate(month);
       const { usury, created } = await createUsury(data);
-      rate = usury;
+      rate = data;
     }
   }
-  res.json(rate ? rate.get({ plain: true }) : false);
+  res.json(rate ? rate : false);
 };
 
 //module.exports = type;
