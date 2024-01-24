@@ -9,13 +9,20 @@ let browser;
       '--disabled-setupid-sandbox',
       '--disable-dev-shm-usage'
     ],
-    headless: 'new',  // false, - Ejecutar el navegador en modo no headless (visible)
+    headless: 'new', // false, - Ejecutar el navegador en modo no headless (visible)
     //slowMo: 500,
     defaultViewport: null
   });
 })();
 
 const tpe = new Map();
+/* type
+  1 - Cedula de ciudadania
+  2 - Permiso de permanencia
+  3 - Nit (no parece funcionar)
+  4 - Cedula de extranjeria
+  5 - Pasaporte
+  */
 tpe.set('1', 'CC');
 tpe.set('4', 'CE');
 tpe.set('5', 'PEP');
@@ -44,13 +51,6 @@ const webConsulPerson = async (cont = 0) => {
 };
 
 const documentPerson = async (type, doc) => {
-  /* type
-  1 - Cedula de ciudadania
-  2 - Permiso de permanencia
-  3 - Nit (no parece funcionar)
-  4 - Cedula de extranjeria
-  5 - Pasaporte
-  */
   const pregResp = [
     { pre: '¿ Cuanto es 4 + 3 ?', res: '7' },
     { pre: '¿ Cuanto es 2 X 3 ?', res: '6' },
@@ -72,11 +72,9 @@ const documentPerson = async (type, doc) => {
       res: doc.slice(0, 3)
     }
   ];
-  //const slow3G = puppeteer.networkConditions['Slow 3G'];
+
   const tipoDoc = '#ddlTipoID';
   const cc = '#ddlTipoID > option:nth-child(2)';
-
-  console.log('hasta aqui vamos bien');
 
   const page = await webConsulPerson();
   if (!page) return { std: false };
@@ -84,9 +82,8 @@ const documentPerson = async (type, doc) => {
   await page.click(tipoDoc);
   await page.select(tipoDoc, type);
   await page.type('#txtNumID', doc);
-  //const Query = await page.$eval('#lblPregunta', e => e.innerText);
-  //let res; //= pregResp.find(e => e.pre === Query) || false;
-  let info; //= await page.$eval('#ValidationSummary1', e => e.innerText);
+
+  let info;
   let ciclo = false;
 
   while (!ciclo) {
@@ -179,7 +176,6 @@ const documentPerson = async (type, doc) => {
     console.log(datos);
   } else datos = { std: false, msg: info };
 
-  //await browser.close();
   await page.close();
   return datos;
 };
@@ -188,7 +184,6 @@ module.exports.documentQuery = async (type, doc) => {
   try {
     return await documentPerson(type, doc);
   } catch (error) {
-    //await browser.close();
     console.log(error, ' Este es el error de la funcion en total');
     return { std: false };
   }
@@ -199,7 +194,7 @@ module.exports.usuryRateQuery = async () => {
     '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
   const page = await browser.newPage();
   await page.setDefaultNavigationTimeout(1000000);
-  //await page.emulateNetworkConditions(slow3G);
+
   await page.goto(
     'https://www.larepublica.co/indicadores-economicos/bancos/tasa-de-usura'
   );
