@@ -9,7 +9,7 @@ let browser;
       '--disabled-setupid-sandbox',
       '--disable-dev-shm-usage'
     ],
-    headless: 'new', // false, - Ejecutar el navegador en modo no headless (visible)
+    headless: 'new',  // false, - Ejecutar el navegador en modo no headless (visible)
     //slowMo: 500,
     defaultViewport: null
   });
@@ -51,6 +51,7 @@ const webConsulPerson = async (cont = 0) => {
 };
 
 const documentPerson = async (type, doc) => {
+  
   const pregResp = [
     { pre: '¿ Cuanto es 4 + 3 ?', res: '7' },
     { pre: '¿ Cuanto es 2 X 3 ?', res: '6' },
@@ -82,7 +83,7 @@ const documentPerson = async (type, doc) => {
   await page.click(tipoDoc);
   await page.select(tipoDoc, type);
   await page.type('#txtNumID', doc);
-
+  
   let info;
   let ciclo = false;
 
@@ -183,7 +184,7 @@ const documentPerson = async (type, doc) => {
 module.exports.documentQuery = async (type, doc) => {
   try {
     return await documentPerson(type, doc);
-  } catch (error) {
+  } catch (error) {    
     console.log(error, ' Este es el error de la funcion en total');
     return { std: false };
   }
@@ -194,7 +195,7 @@ module.exports.usuryRateQuery = async () => {
     '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
   const page = await browser.newPage();
   await page.setDefaultNavigationTimeout(1000000);
-
+  
   await page.goto(
     'https://www.larepublica.co/indicadores-economicos/bancos/tasa-de-usura'
   );
