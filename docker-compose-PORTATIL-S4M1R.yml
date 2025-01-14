@@ -32,3 +32,8 @@ services:
       - PHONE=573004880579
       - NAME=GrupoElite
       - ALIAS=GE
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=465
+      - SMTP_SECURE=true
+      - SMTP_AUTH_USER=inmovily@gmail.com
+      - SMTP_AUTH_PASS=wnqacvhxuzdfhcpq

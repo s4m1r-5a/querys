@@ -39,4 +39,4 @@ RUN addgroup -S pptruser && adduser -S -G pptruser pptruser \
 # Run everything after as non-privileged user.
 USER pptruser 
 
- CMD [ "npm", "run", "dev" ]
+ CMD [ "npm", "start" ]
