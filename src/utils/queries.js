@@ -9,7 +9,7 @@ let browser;
       '--disabled-setupid-sandbox',
       '--disable-dev-shm-usage'
     ],
-    headless: 'new',  // false, - Ejecutar el navegador en modo no headless (visible)
+    headless: false, //'new',  // false, - Ejecutar el navegador en modo no headless (visible)
     //slowMo: 500,
     defaultViewport: null
   });
@@ -30,11 +30,9 @@ tpe.set('5', 'PEP');
 const webConsulPerson = async (cont = 0) => {
   const tipoDoc = '#ddlTipoID';
   const url = 'https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1';
-
-  //const pages = await browser.pages(); //.newPage();
-  const page = await browser.newPage(); // await pages[0]; //
+  
+  const page = await browser.newPage(); 
   await page.setDefaultNavigationTimeout(100000);
-  console.log('hasta aqui vamos bien 2');
   try {
     await page.goto(url);
     await page.setViewport({ width: 1040, height: 682 });

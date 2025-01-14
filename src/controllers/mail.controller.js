@@ -1,4 +1,4 @@
-const config = require('../config');
+/* const config = require('../config');
 const nodemailer = require('nodemailer');
 const transpoter = nodemailer.createTransport(config.SMTP);
 transpoter.verify().then(() => {
@@ -6,3 +6,4 @@ transpoter.verify().then(() => {
 });
 
 module.exports = { transpoter };
+ */

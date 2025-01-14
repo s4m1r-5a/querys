@@ -6,13 +6,13 @@ module.exports = {
   PORT: process.env.PORT || 4000,
   SECRET: process.env.JWT_SECRET,
   SMTP: {
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    secure: process.env.SMTP_SECURE,
     auth: {
-      user: "inmovily@gmail.com",
-      pass: "ubhohzssrwojhpdw",
-    },
+      user: process.env.SMTP_AUTH_USER,
+      pass: process.env.SMTP_AUTH_PASS
+    }
   },
   API_URL: process.env.API_URL, //https://api.binance.com/api https://testnet.binance.vision/api
   API_KEY: process.env.API_KEY, //MDopxTMOUmQ6KFpIx1VFvhb6uY4krznxqt28Q8MIAhAsHc7L5fY617BHxJ8OitfY NRwfPxZuWhSURjNGQTMcvY5Vc4XCTC7FfrPMExIlEMJo6VPDmxBqzszQWJFkx3Me

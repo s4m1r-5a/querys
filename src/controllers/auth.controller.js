@@ -1,5 +1,5 @@
 const { User } = require('../models/index');
-const { transpoter } = require('./mail.controller');
+// const { transpoter } = require('./mail.controller');
 //const { OAuth2Client } = require('google-auth-library');
 //const axios = require('axios');
 
@@ -143,7 +143,7 @@ module.exports.forgetPass = async (req, res) => {
     text: verificationLink
   };
 
-  transpoter
+  /* transpoter
     .sendMail(data)
     .then(reslt => {
       console.log(reslt);
@@ -155,7 +155,7 @@ module.exports.forgetPass = async (req, res) => {
       res
         .status(400)
         .json({ message: e.message ? e.message : e.response.data.message });
-    });
+    }); */
 };
 
 module.exports.resetPass = async (req, res) => {
