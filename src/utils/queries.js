@@ -1,56 +1,11 @@
 const puppeteer = require('puppeteer');
-const { getPerson } = require('../repositories/persons.repository');
-//const doctype = require('../controllers/query.controller');
-let browser;
-(async () => {
-  browser = await puppeteer.launch({
-    args: [
-      '--no-sandbox',
-      '--disabled-setupid-sandbox',
-      '--disable-dev-shm-usage'
-    ],
-    headless: false, //'new',  // false, - Ejecutar el navegador en modo no headless (visible)
-    //slowMo: 500,
-    defaultViewport: null
-  });
-})();
 
-const tpe = new Map();
-/* type
-  1 - Cedula de ciudadania
-  2 - Permiso de permanencia
-  3 - Nit (no parece funcionar)
-  4 - Cedula de extranjeria
-  5 - Pasaporte
-  */
-tpe.set('1', 'CC');
-tpe.set('4', 'CE');
-tpe.set('5', 'PEP');
-
-const webConsulPerson = async (cont = 0) => {
-  const tipoDoc = '#ddlTipoID';
-  const url = 'https://apps.procuraduria.gov.co/webcert/inicio.aspx?tpo=1';
-  
-  const page = await browser.newPage(); 
-  await page.setDefaultNavigationTimeout(100000);
-  try {
-    await page.goto(url);
-    await page.setViewport({ width: 1040, height: 682 });
-
-    await page.waitForSelector(tipoDoc, { visible: true });
-    return page;
-  } catch (error) {
-    if (cont > 3) return false;
-    console.log(error, ' Este es el error del intento numero: ', cont);
-    cont++;
-    await page.close();
-    await setTimeout(async () => await webConsulPerson(cont), 3000);
-  }
-};
-
-const documentPerson = async (type, doc) => {
-  
-  const pregResp = [
+// Constantes globales
+const CONSTANTS = {
+  NAVIGATION_TIMEOUT: 120000, // Aumentado a 2 minutos
+  MAX_RETRIES: 3,
+  RETRY_DELAY: 3000,
+  QUESTIONS_ANSWERS: [
     { pre: '¿ Cuanto es 4 + 3 ?', res: '7' },
     { pre: '¿ Cuanto es 2 X 3 ?', res: '6' },
     { pre: '¿ Cual es la Capital del Vallle del Cauca?', res: 'Cali' },
@@ -62,379 +17,380 @@ const documentPerson = async (type, doc) => {
     { pre: '¿ Cuanto es 3 - 2 ?', res: '1' },
     { pre: '¿ Cual es la Capital de Colombia (sin tilde)?', res: 'Bogota' },
     { pre: '¿ Cuanto es 3 X 3 ?', res: '9' },
-    {
-      pre: '¿Escriba los dos ultimos digitos del documento a consultar?',
-      res: doc.slice(-2)
-    },
-    {
-      pre: '¿Escriba los tres primeros digitos del documento a consultar?',
-      res: doc.slice(0, 3)
+    { 
+      pre: '¿Escriba las dos primeras letras del primer nombre de la persona a la cual esta expidiendo el certificado?',
+      res: 'NO' // Respuesta por defecto ya que no conocemos el nombre
     }
-  ];
-
-  const tipoDoc = '#ddlTipoID';
-  const cc = '#ddlTipoID > option:nth-child(2)';
-
-  const page = await webConsulPerson();
-  if (!page) return { std: false };
-
-  await page.click(tipoDoc);
-  await page.select(tipoDoc, type);
-  await page.type('#txtNumID', doc);
-  
-  let info;
-  let ciclo = false;
-
-  while (!ciclo) {
-    await page.waitForSelector('#lblPregunta');
-    const Query = await page.$eval('#lblPregunta', e => e.innerText);
-    const res = pregResp.find(e => e.pre === Query) || false;
-
-    if (res) {
-      await page.type('#txtRespuestaPregunta', res?.res);
-      await page.click('#btnConsultar');
-      await page.waitForTimeout(2000);
-      info = await page.$eval('#ValidationSummary1', e => e.innerText);
-      ciclo =
-        res &&
-        !/Falla la validación del CAPTCHA.|El valor ingresado para la respuesta no responde a la pregunta./.test(
-          info.trim()
-        );
-
-      if (!ciclo) {
-        await page.close();
-        return await documentPerson(type, doc);
-      }
-    }
-
-    if (!ciclo) await page.click('#ImageButton1', { delay: 1000 });
-  }
-
-  const Nombres = await page.$$eval('#divSec > div.datosConsultado > span', e =>
-    e.map(r => r.innerText)
-  );
-  console.log(info.trim(), info === '\n\n', info === '\n\n\t', Nombres, ciclo);
-
-  let datos;
-  if (Nombres.length) {
-    const tex = '#divSec > div.SeccionAnt h2';
-
-    const Antcdnts = await page.evaluate(tex => {
-      const select = document.querySelector(tex);
-      return select ? select.innerText : null;
-    }, tex);
-
-    if (Antcdnts) {
-      const listSiri = await page.$$eval(
-        '#divSec > div.SeccionAnt > div.SessionNumSiri > h2, h3, tr',
-        e =>
-          e.map(t =>
-            /th|td/.test(t.innerHTML) ? t.innerText.split(/\t|\n/) : t.innerText
-          )
-      );
-
-      if (listSiri.length) {
-        listSiri.splice(0, 0, Antcdnts);
-        Antecedentes = listSiri;
-      } else {
-        Antecedentes = await page.$$eval(
-          '#divSec > div.SeccionAnt > table > tbody > tr',
-          e => e.map(r => r.innerText.split('\t'))
-        );
-        Antecedentes.splice(0, 0, Antcdnts);
-      }
-    } else {
-      Antecedentes = await page.$eval(
-        '#divSec > h2:nth-child(3)',
-        e => e.innerText
-      );
-    }
-
-    const fullName = JSON.stringify(Nombres)
-      .replace(/[^a-zA-Z]+/g, ' ')
-      .trim();
-
-    const firstName = JSON.stringify(Nombres.slice(0, 2))
-      .replace(/[^a-zA-Z]+/g, ' ')
-      .trim();
-
-    const lastName = JSON.stringify(Nombres.slice(2))
-      .replace(/[^a-zA-Z]+/g, ' ')
-      .trim();
-
-    datos = {
-      docType: tpe.get(type),
-      docNumber: doc,
-      fullName,
-      firstName,
-      lastName,
-      arrayName: Nombres,
-      Antecedentes
-    };
-
-    console.log(datos);
-  } else datos = { std: false, msg: info };
-
-  await page.close();
-  return datos;
+  ]
 };
 
-module.exports.documentQuery = async (type, doc) => {
+// Mapeo de tipos de documento
+const DOCUMENT_TYPES = new Map([
+  ['1', 'CC'], // Cédula de ciudadanía
+  ['4', 'CE'], // Cédula de extranjería
+  ['5', 'PEP'] // Permiso Especial de Permanencia
+]);
+
+// Clase principal para manejar el browser
+class BrowserManager {
+  constructor() {
+    this.browser = null;
+  }
+
+  async initBrowser() {
+    if (!this.browser) {
+      this.browser = await puppeteer.launch({
+        args: [
+          '--no-sandbox',
+          '--disabled-setupid-sandbox',
+          '--disable-dev-shm-usage'
+        ],
+        headless: false, // Cambiado a false para ver el navegador
+        defaultViewport: null,
+        slowMo: 50 // Agregado para ralentizar las acciones y verlas mejor
+      });
+    }
+    return this.browser;
+  }
+
+  async closeBrowser() {
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
+    }
+  }
+
+  async createPage() {
+    if (!this.browser) {
+      await this.initBrowser();
+    }
+    const page = await this.browser.newPage();
+    await page.setDefaultNavigationTimeout(CONSTANTS.NAVIGATION_TIMEOUT);
+    return page;
+  }
+}
+
+const browserManager = new BrowserManager();
+
+// Función para iniciar la consulta web
+async function initWebConsult(retryCount = 0) {
+  const page = await browserManager.createPage();
+
   try {
-    return await documentPerson(type, doc);
-  } catch (error) {    
-    console.log(error, ' Este es el error de la funcion en total');
-    return { std: false };
-  }
-};
-
-module.exports.usuryRateQuery = async () => {
-  const Tex =
-    '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
-  const page = await browser.newPage();
-  await page.setDefaultNavigationTimeout(1000000);
-  
-  await page.goto(
-    'https://www.larepublica.co/indicadores-economicos/bancos/tasa-de-usura'
-  );
-  // Esperar a que el selector esté disponible
-  await page.waitForSelector(Tex);
-
-  const butonYear =
-    '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.quote-graph-bar > div.graph-buttons > button:nth-child(4)';
-  await page.locator(butonYear).click();
-  //await page.click(butonYear);
-  const tasa = await page.evaluate(Tex => {
-    return parseFloat(
-      document.querySelector(Tex).innerText.slice(0, -2).replace(/,/, '.')
-    );
-  }, Tex);
-  console.log('Tasa:', tasa);
-
-  await page.close();
-  return tasa / 100;
-};
-
-module.exports.companyQuery = async (nit, method = 2) => {
-  const page = await browser.newPage();
-  //const navigationPromise = page.waitForNavigation();
-  await page.setDefaultNavigationTimeout(1000000);
-  //await page.emulateNetworkConditions(slow3G);
-
-  const existElement = async selector => {
-    const text = await page.evaluate(selector => {
-      const element = document.querySelector(selector);
-      if (element) {
-        return element.textContent;
-      }
-
-      return false;
-    });
-    console.log(text);
-    return text;
-  };
-
-  if (method === 1) {
-    const datos = {
-      name: '',
-      city: '',
-      matricula: '',
-      estado: '',
-      sociedad: '',
-      organizacion: '',
-      categoria: '',
-      actualizado: '',
-      actividades: '',
-      representante: ''
-    };
+    console.log('Navegando a la página...');
     await page.goto(
-      `https://www.einforma.co/servlet/app/portal/ENTP/prod/LISTA_EMPRESAS/razonsocial/${nit}`
+      'https://www.procuraduria.gov.co/Pages/Consulta-de-Antecedentes.aspx'
     );
-
     await page.setViewport({ width: 1040, height: 682 });
-
-    //await navigationPromise;
-
-    await page.waitForSelector('#imprimir > table > tbody > tr:nth-child(1)', {
-      visible: true
-    });
-    await page.waitForTimeout(3000);
-
-    const table = await page.$$eval('#imprimir > table > tbody > tr', e =>
-      e.map(t => t.innerText.split(/\t|\n/))
-    );
-    table.map(d => {
-      switch (d[0]) {
-        case 'Razón Social:':
-          datos.name = d[1];
-          break;
-        case 'Forma Jurídica:':
-          datos.sociedad = d[1];
-          break;
-        case 'Departamento:':
-          datos.city = d[1];
-          break;
-        case 'Actividad CIIU:':
-          datos.actividades = d[1];
-          break;
-        case 'Fecha Último Dato:':
-          datos.actualizado = d[1];
-          break;
-        case 'Matrícula Mercantil:':
-          datos.matricula = d[1];
-          break;
-        case 'Dirección Actual:':
-          datos.address = d[1];
-          break;
-      }
-    });
-
-    datos.table = table;
+    return page;
+  } catch (error) {
     await page.close();
-
-    console.log(datos);
-    return datos;
-  } else if (method === 2) {
-    await page.goto('http://www.rues.org.co');
-
-    await page.setViewport({ width: 1040, height: 682 });
-
-    //await navigationPromise;
-
-    await page.waitForSelector('#txtNIT', { visible: true });
-    await page.type('#txtNIT', nit);
-    await page.click('#btnConsultaNIT');
-    await page.waitForTimeout(2000);
-    await page.waitForSelector('#rmTable2', { visible: true });
-    let name = await page.$eval(
-      '#rmTable2 > tbody > tr > td:nth-child(2)',
-      e => e.innerText
-    );
-
-    /* while (!!name === false) {
-    await page.waitForSelector('#rmTable2', { visible: true });
-    name = await page.$eval(
-      '#rmTable2 > tbody > tr > td:nth-child(2)',
-      e => e.innerText
-    );
-  } */
-    const city = await page.$eval(
-      '#rmTable2 > tbody > tr > td:nth-child(4)',
-      e => e.innerText
-    );
-    await page.click('#rmTable2 > tbody > tr > td:nth-child(1)');
-    await page.click(
-      '#rmTable2 > tbody > tr.child > td > ul > li > span.dtr-data > a'
-    );
-    await page.waitForSelector(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(1) > td:nth-child(2)'
-    );
-    await page.waitForTimeout(1500);
-    let cardtexto = await existElement('#card-info');
-    console.log(cardtexto);
-    if (cardtexto) {
-      await page.click('#card-info > input[type=submit]');
-      await page.waitForSelector(
-        'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr:nth-child(1) > td:nth-child(2)'
+    if (retryCount >= CONSTANTS.MAX_RETRIES) {
+      throw new Error(
+        `Failed to init web consult after ${CONSTANTS.MAX_RETRIES} retries`
       );
-      while (cardtexto) {
-        cardtexto = await existElement('#card-info');
-        if (cardtexto) await page.click('#card-info > input[type=submit]');
+    }
+    console.log(`Retry attempt ${retryCount + 1} due to: ${error.message}`);
+    await new Promise(resolve => setTimeout(resolve, CONSTANTS.RETRY_DELAY));
+    return initWebConsult(retryCount + 1);
+  }
+}
+
+// Función principal para consultar documentos
+async function consultDocument(type, doc) {
+  let originalPage = null;
+  let currentPage = null;
+  try {
+    originalPage = await initWebConsult();
+    currentPage = originalPage;
+    
+    console.log('Esperando a que la página se cargue...');
+    // Esperar por el estado de carga del DOM
+    await currentPage.waitForFunction(
+      () => document.readyState === 'complete',
+      { timeout: 30000 }
+    );
+    
+    // Dar un pequeño tiempo adicional para que los scripts se ejecuten
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log('Buscando el selector ddlTipoID...');
+    
+    // Esperar a que el iframe se cargue si existe
+    const frames = await currentPage.frames();
+    for (const frame of frames) {
+      try {
+        const element = await frame.$('#ddlTipoID');
+        if (element) {
+          console.log('Elemento encontrado en un iframe');
+          currentPage = frame;
+          break;
+        }
+      } catch (e) {
+        continue;
       }
     }
 
-    arrayData = await page.$$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-8 > div > div.card-block > div > table > tbody > tr',
-      e => e.map(r => r.innerText.split('\t'))
-    );
-
-    const actividades = await page.$$eval(
-      'body > div:nth-child(2) > main > div > div.container-fluid > div:nth-child(5) > div > div.col-md-4 > div:nth-child(3) > div.card-body > ul > li',
-      e => e.map(r => r.innerText)
-    );
-    await page.click('#Facultades');
-    await page.waitForSelector('#txtFacultades', { visible: true });
-    let texto = await page.$eval('#txtFacultades', e => e.innerText);
-    console.log(texto);
-    while (texto === 'Consultando....') {
-      await page.waitForSelector('#txtFacultades', { visible: true });
-      texto = await page.$eval('#txtFacultades', e => e.innerText);
-    }
-    const reprecntant = texto
-      .replace(/\./g, '')
-      .split(/[^0-9]/)
-      .filter(e => /[0-9]{7,}/.test(e));
-    /* texto
-      .split('\n')
-      .find(e => /REPRESENTANTE LEGAL/.test(e))
-      .replace(/[^0-9]/g, '')
-      : texto.includes('REPRESENTANTE LEGAL') */
-
-    const datosConsultados = {
-      name,
-      city,
-      actividades,
-      docRepresentantes: reprecntant,
-      texto
-    };
-    arrayData.map((e, i) => {
-      e[0] === 'Numero de Matricula' && (datosConsultados.matricula = e[1]);
-      e[0] === 'Fecha de Matricula' && (datosConsultados.date = e[1]);
-      e[0] === 'Estado de la matricula' && (datosConsultados.estado = e[1]);
-      e[0] === 'Tipo de Sociedad' && (datosConsultados.sociedad = e[1]);
-      e[0] === 'Tipo de Organización' && (datosConsultados.organizacion = e[1]);
-      e[0] === 'Categoria de la Matricula' &&
-        (datosConsultados.categoria = e[1]);
-      e[0] === 'Fecha Ultima Actualización' &&
-        (datosConsultados.actualizado = e[1]);
-    });
-
-    await page.close();
-    await page.waitForTimeout(2000);
-    console.log(reprecntant);
+    // Intentar encontrar el elemento
     try {
-      for (var i = 0; i < reprecntant.length; i++) {
-        const person =
-          (await getPerson('CC', `${parseFloat(reprecntant[i])}`))
-            ?.dataValues || false;
+      await currentPage.waitForFunction(
+        () => document.querySelector('#ddlTipoID') !== null,
+        { timeout: 10000 }
+      );
+      console.log('Elemento encontrado en el DOM');
+    } catch (e) {
+      console.error('Error al esperar el elemento:', e);
+      const html = await currentPage.content();
+      console.log('HTML de la página:', html);
+      throw new Error('No se pudo encontrar el elemento ddlTipoID');
+    }
 
-        if (person && !i) datosConsultados.representantes = [person];
-        else if (person) datosConsultados.representantes.push(person);
-        else {
-          const represent = await documentPerson(
-            '1',
-            `${parseFloat(reprecntant[i])}`
+    // Seleccionar tipo de documento
+    await currentPage.select('#ddlTipoID', type);
+    console.log('Tipo de documento seleccionado:', type);
+    
+    await currentPage.type('#txtNumID', doc);
+
+    // Manejar preguntas de verificación
+    let verified = false;
+    let attempts = 0;
+    const MAX_VERIFICATION_ATTEMPTS = 10;
+
+    while (!verified && attempts < MAX_VERIFICATION_ATTEMPTS) {
+      try {
+        await currentPage.waitForSelector('#lblPregunta', { timeout: 5000 });
+        const question = await currentPage.$eval('#lblPregunta', e => e.innerText);
+        console.log('Pregunta recibida:', question);
+
+        // Agregar preguntas dinámicas sobre el documento
+        const dynamicQuestions = [
+          {
+            pre: '¿Escriba los dos ultimos digitos del documento a consultar?',
+            res: doc.slice(-2)
+          },
+          {
+            pre: '¿Escriba los tres primeros digitos del documento a consultar?',
+            res: doc.slice(0, 3)
+          }
+        ];
+
+        const allQuestions = [...CONSTANTS.QUESTIONS_ANSWERS, ...dynamicQuestions];
+        const answer = allQuestions.find(q => q.pre === question);
+
+        if (!answer) {
+          console.log('Pregunta no conocida, actualizando...');
+          await currentPage.click('#ImageButton1');
+          
+          // Esperar a que la pregunta cambie
+          await currentPage.waitForFunction(
+            (currentQuestion) => {
+              const newQuestion = document.querySelector('#lblPregunta').innerText;
+              return newQuestion !== currentQuestion;
+            },
+            { timeout: 5000 },
+            question
           );
+          
+          attempts++;
+          continue;
+        }
 
-          if (represent && !i) datosConsultados.representantes = [represent];
-          else if (represent) datosConsultados.representantes.push(represent);
+        console.log('Pregunta conocida encontrada, respondiendo:', answer.res);
+        await currentPage.type('#txtRespuestaPregunta', answer.res);
+        await currentPage.click('#btnConsultar');
+        
+        // Esperar a que aparezca la validación o los datos
+        try {
+          await currentPage.waitForFunction(
+            () => {
+              const validation = document.querySelector('#ValidationSummary1');
+              const datos = document.querySelector('#divSec > div.datosConsultado > span');
+              return validation || datos;
+            },
+            { timeout: 10000 }
+          );
+          
+          // Dar tiempo adicional para que se complete la carga
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // Verificar si hay mensaje de validación
+          const validationElement = await currentPage.$('#ValidationSummary1');
+          if (validationElement) {
+            const validationText = await validationElement.evaluate(el => el.innerText);
+            verified = !/Falla la validación del CAPTCHA.|El valor ingresado para la respuesta no responde a la pregunta./.test(
+              validationText.trim()
+            );
+
+            if (!verified) {
+              console.log('Verificación fallida, intentando de nuevo...');
+              await currentPage.click('#ImageButton1');
+              
+              // Esperar a que la pregunta cambie
+              await currentPage.waitForFunction(
+                (currentQuestion) => {
+                  const newQuestion = document.querySelector('#lblPregunta').innerText;
+                  return newQuestion !== currentQuestion;
+                },
+                { timeout: 5000 },
+                question
+              );
+              
+              attempts++;
+              continue;
+            }
+          }
+          
+          // Si no hay error de validación, verificar si hay datos
+          const datosElement = await currentPage.$('#divSec > div.datosConsultado > span');
+          if (datosElement) {
+            console.log('Datos encontrados, procediendo a extraer...');
+            verified = true;
+          } else {
+            console.log('No se encontraron datos, intentando de nuevo...');
+            verified = false;
+            await currentPage.click('#ImageButton1');
+            attempts++;
+            continue;
+          }
+          
+        } catch (error) {
+          console.error('Error esperando resultados:', error);
+          verified = false;
+          attempts++;
+          continue;
+        }
+      } catch (error) {
+        console.error('Error en el proceso de verificación:', error);
+        await currentPage.click('#ImageButton1');
+        
+        try {
+          // Esperar a que la pregunta cambie
+          await currentPage.waitForFunction(
+            (currentQuestion) => {
+              const newQuestion = document.querySelector('#lblPregunta').innerText;
+              return newQuestion !== currentQuestion;
+            },
+            { timeout: 5000 },
+            question
+          );
+        } catch (e) {
+          console.error('Error esperando el cambio de pregunta:', e);
+        }
+        
+        attempts++;
+        if (attempts >= MAX_VERIFICATION_ATTEMPTS) {
+          throw new Error('Se alcanzó el límite máximo de intentos de verificación');
         }
       }
-    } catch (error) {
-      console.log(error);
     }
 
-    console.log(datosConsultados);
-    return datosConsultados;
+    if (!verified) {
+      throw new Error('No se pudo completar la verificación después de varios intentos');
+    }
+
+    // Extraer información
+    console.log('Extrayendo información...');
+    const names = await currentPage.$$eval(
+      '#divSec > div.datosConsultado > span',
+      elements => elements.map(e => e.innerText)
+    );
+
+    if (!names.length) {
+      console.log('No se encontraron nombres en la respuesta');
+      throw new Error('No se encontraron datos en la respuesta');
+    }
+
+    console.log('Nombres encontrados:', names);
+    // Procesar nombres
+    const fullName = names.join(' ').trim();
+    const firstName = names.slice(0, 2).join(' ').trim();
+    const lastName = names.slice(2).join(' ').trim();
+
+    return {
+      success: true,
+      docType: DOCUMENT_TYPES.get(type),  // Convertir el número al tipo de documento (CC, CE, etc.)
+      docNumber: doc,
+      firstName,
+      lastName,
+      fullName,
+      arrayName: names,
+      records: await extractRecords(currentPage)
+    };
+  } catch (error) {
+    console.error('Error en consulta de documento:', error);
+    return { success: false, message: error.message };
+  } finally {
+    if (originalPage && !originalPage.isClosed()) {
+      await originalPage.close();
+    }
+  }
+}
+
+// Función auxiliar para extraer antecedentes
+async function extractRecords(page) {
+  try {
+    const hasRecords = await page.$('#divSec > div.SeccionAnt h2');
+    if (!hasRecords) {
+      return await page.$eval('#divSec > h2:nth-child(3)', e => e.innerText);
+    }
+
+    const records = await page.$$eval(
+      '#divSec > div.SeccionAnt > div.SessionNumSiri > h2, h3, tr',
+      elements =>
+        elements.map(e =>
+          /th|td/.test(e.innerHTML) ? e.innerText.split(/\t|\n/) : e.innerText
+        )
+    );
+
+    if (records.length === 0) {
+      return await page.$$eval(
+        '#divSec > div.SeccionAnt > table > tbody > tr',
+        rows => rows.map(r => r.innerText.split('\t'))
+      );
+    }
+
+    return records;
+  } catch (error) {
+    console.error('Error extracting records:', error);
+    return 'Error al extraer antecedentes';
+  }
+}
+
+// Exportar funciones principales
+module.exports = {
+  async documentQuery(type, doc) {
+    try {
+      return await consultDocument(type, doc);
+    } catch (error) {
+      console.error('Error in document query:', error);
+      return { success: false, message: error.message };
+    }
+  },
+
+  async usuryRateQuery() {
+    let page = null;
+    try {
+      page = await browserManager.createPage();
+      await page.goto(
+        'https://www.larepublica.co/indicadores-economicos/bancos/tasa-de-usura'
+      );
+
+      const selector =
+        '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
+      await page.waitForSelector(selector);
+
+      const rate = await page.$eval(selector, el => el.innerText);
+      return { success: true, rate };
+    } catch (error) {
+      console.error('Error in usury rate query:', error);
+      return { success: false, message: error.message };
+    } finally {
+      if (page) await page.close();
+    }
+  },
+
+  // Método para cerrar el browser cuando sea necesario
+  async closeBrowser() {
+    await browserManager.closeBrowser();
   }
 };
-
-/* fetch('https://ruesapi.rues.org.co/api/ConsultaExpediente?ID_RM=90047174112', {
-  headers: {
-    accept: 'application/json, text/plain, ',
-    'accept-language': 'es-ES,es;q=0.9',
-    authorization:
-      'Bearer j0cyS5vrl9VbKA2VDEeXtyjYfbDwrf26-4fVOZspU13X5ZnomZpu3JdFCXfXSAHDPhKLBWAtyxT4SuyCXqcaEwo_s-EI6uVPdPh01pWS7zUB6SfaCPEsYNDDlijN8TU4Gf5kh6gpf1rI2FMz-WR9vfN4XQOkdyH9TGwJOrYNgOSocAOdQL9H0b_d6inNmqCByuL-lZabz1O4LCxiRvxPoDHTSfamBFmycn9AygaHnPamEYdHqwKHcCKEXPgNY-MzlbO_raGkKBZg35x20UgVlVK6b1KafU6OsMCM-8Bq_Qkw5OanWvToZrd2J7pA7zG4Geg17foCehDtBgttnvoBBryvM54xtFdgugiDemQt8tf1N7KMq7bmHASS_ZZUGtPANIzaGwN-rMa6pqyGl0kGC7NZTfwP14HqV_IjJBdzoHjj4QckbtX9-g7aZze9RIEGMa_shuLHyUwZ1xwRFuRy74Y3--ezG1-RWND-mt5p95kv1eUCRh3eZtXCTPIlsbCoCIS3oi6Zx4Hld-ZgmHFpyY098FasZhvvV28IJHI0YhbIeoXRayA1aPMw-nHXf1-T',
-    'sec-ch-ua':
-      '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-site',
-    Referer: 'https://ruesfront.rues.org.co/',
-    'Referrer-Policy': 'strict-origin-when-cross-origin'
-  },
-  body: null,
-  method: 'POST'
-}); */

@@ -1,8 +1,7 @@
 const moment = require('moment');
 const {
   documentQuery,
-  usuryRateQuery,
-  companyQuery
+  usuryRateQuery
 } = require('../utils/queries');
 const { consultPerson, consultCompany } = require('../utils/verifik');
 const {
@@ -23,6 +22,7 @@ const {
 } = require('../repositories/persons.repository');
 const { businessQuery } = require('../services/enterpriseQueryApi');
 const { checkUsuryRate } = require('../services/servicesQueryApi');
+const { companyQuery } = require('../utils/companies');
 
 const type = new Map();
 type.set('CC', '1');
@@ -32,67 +32,119 @@ type.set('PEP', '5');
 moment.locale('es');
 
 module.exports.person = async (req, res) => {
-  //["CC", "CE", "PEP", "CCVE"]
-  const { docType, docNumber } = req.body;
-  const person = await getPerson(docType, docNumber);
-  console.log(person);
-  if (person) return res.json(person);
-
-  if (type.has(docType)) {
-    const data = await documentQuery(type.get(docType), docNumber);
-    if (data) {
-      console.log(data);
-      await createPerson(data);
-      return res.json(await getPerson(data.docType, data.docNumber));
+  try {
+    const { docType, docNumber } = req.body;
+    
+    if (!docType || !docNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere tipo y número de documento'
+      });
     }
-    consultPerson({ docType, docNumber })
-      .then(async response => {
-        await createPerson(response);
-        return res.json(response);
-      })
-      .catch(error => res.json(error.response.data));
-  } else
-    consultPerson({ docType, docNumber })
-      .then(response => res.json(response))
-      .catch(error => res.json(error.response.data));
-}; // bueno
+
+    // Verificar si ya existe la persona
+    const person = await getPerson(docType, docNumber);
+    if (person) return res.json(person);
+
+    // Validar tipo de documento
+    if (!type.has(docType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tipo de documento no válido'
+      });
+    }
+
+    try {
+      console.log('Consultando documento con tipo:', docType, 'número:', docNumber);
+      const data = await documentQuery(type.get(docType), docNumber);
+      console.log('Datos recibidos de documentQuery:', data);
+      
+      if (data && data.success) {
+        console.log('Guardando persona en la base de datos...');
+        const savedPerson = await createPerson({
+          docType: data.docType,  // Esto ya debería ser CC, CE, etc.
+          docNumber: data.docNumber,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          fullName: data.fullName,
+          arrayName: data.arrayName,
+          Antecedentes: data.records
+        });
+        
+        return res.json(await getPerson(data.docType, data.docNumber));
+      } else {
+        throw new Error(data.message || 'No se pudieron obtener los datos');
+      }
+    } catch (error) {
+      console.error('Error en consulta de documento:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Error al consultar el documento'
+      });
+    }
+  } catch (error) {
+    console.error('Error general:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor'
+    });
+  }
+};
 
 module.exports.company = async (req, res) => {
-  //["CC", "CE", "PEP", "CCVE"]
-  const { nit, method } = req.body;
-  const busines = await businessQuery(nit);
-  if (busines) return res.json(busines);
+  try {
+    const { nit, method } = req.body;
 
-  const company = await getCompany(nit);
-  if (company) return res.json(company);
+    if (!nit) {
+      return res.status(400).json({
+        success: false,
+        message: 'NIT es requerido'
+      });
+    }
 
-  const newBusiness = await companyQuery(nit, method);
-  newBusiness.nit = nit;
-  newBusiness.actualizado = newBusiness.actualizado
-    ? moment(newBusiness.actualizado).format('YYYY-MM-DD')
-    : null;
-  newBusiness.date = newBusiness.date
-    ? moment(newBusiness.date).format('YYYY-MM-DD')
-    : null;
+    const newBusiness = await companyQuery(nit, method);
 
-  //if (typeof newBusiness.representante === 'object') {
-  if (Array.isArray(newBusiness.representantes)) {
-    for (var i = 0; i < newBusiness.representantes.length; i++) {
-      const person = newBusiness.representantes[i];
-      if (!i) newBusiness.agent = (await createPerson(person)).id || false;
-      else {
-        const people = await createPerson(person);
-        if (!newBusiness?.agent) newBusiness.agent = people.id;
+    if (!newBusiness) {
+      return res.status(404).json({
+        success: false,
+        message: `No se encontraron resultados para el NIT ${nit}`
+      });
+    }
+
+    newBusiness.nit = nit;
+    newBusiness.actualizado = newBusiness.actualizado
+      ? moment(newBusiness.actualizado).format('YYYY-MM-DD')
+      : null;
+    newBusiness.date = newBusiness.date
+      ? moment(newBusiness.date).format('YYYY-MM-DD')
+      : null;
+
+    if (Array.isArray(newBusiness.representantes)) {
+      for (let i = 0; i < newBusiness.representantes.length; i++) {
+        const person = newBusiness.representantes[i];
+        try {
+          const createdPerson = await createPerson(person);
+          if (!i) newBusiness.agent = createdPerson.id || false;
+          else if (!newBusiness.agent) {
+            newBusiness.agent = createdPerson.id;
+          }
+        } catch (personError) {
+          console.error(`Error creando representante ${i}:`, personError);
+        }
       }
     }
-  } else if (newBusiness.representantes) {
-    console.log(newBusiness.representantes);
+
+    res.json({
+      success: true,
+      data: newBusiness
+    });
+  } catch (error) {
+    console.error('Error en consulta de empresa:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno al consultar la empresa'
+    });
   }
-
-  const business = await createCompany(newBusiness);
-  //console.log(business);
-
-  return res.json(business);
 };
 
 module.exports.usury = async (req, res) => {
