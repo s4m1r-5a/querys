@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { documentQuery } = require('../utils/queries');
+const { companyQuery } = require('../utils/companies');
 let token = '';
 
 dataDefaultEinforma = {
@@ -100,13 +101,7 @@ const consultCompanyData = async nit => {
       }
     });
 
-    const { data } = await api.post('/', {
-      Razon: null,
-      Nit: nit,
-      Dpto: null,
-      Cod_Camara: null,
-      Matricula: null
-    });
+    const { data } = await api.post('/', { Nit: nit });
     console.log(data, 'data consultCompanyData');
 
     return data;
@@ -156,7 +151,7 @@ module.exports.businessQuery = async (type, doc) => {
     // Transformar los datos al nuevo formato
     let transformedData = transformBusinessQueryData(companyData, dataEinforma);
 
-    if (!transformedData?.docNumber) {
+    if (!transformedData?.docNumber && type !== '2') {
       const additionalData = transformedData?.additionalData;
       transformedData = await documentQuery(type, doc);
 
@@ -166,6 +161,8 @@ module.exports.businessQuery = async (type, doc) => {
           ...additionalData
         };
       }
+    } else if (!transformedData?.docNumber) {
+      transformedData = await companyQuery(doc, 2);
     }
 
     console.log(transformedData, 'transformedData');
