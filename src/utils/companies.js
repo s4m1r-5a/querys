@@ -58,19 +58,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY // Make sure to set this environment variable
 });
 
-// Función auxiliar para verificar existencia de elementos
-const existElement = async (page, selector) => {
-  try {
-    const element = await page.$(selector);
-    if (!element) return false;
-    const text = await page.evaluate(el => el.textContent, element);
-    return text || true;
-  } catch (error) {
-    console.error('Error en existElement:', error);
-    return false;
-  }
-};
-
 // Función auxiliar para esperar
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 

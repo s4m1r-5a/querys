@@ -16,11 +16,7 @@ const CONSTANTS = {
     { pre: '¿ Cuanto es 6 + 2 ?', res: '8' },
     { pre: '¿ Cuanto es 3 - 2 ?', res: '1' },
     { pre: '¿ Cual es la Capital de Colombia (sin tilde)?', res: 'Bogota' },
-    { pre: '¿ Cuanto es 3 X 3 ?', res: '9' },
-    { 
-      pre: '¿Escriba las dos primeras letras del primer nombre de la persona a la cual esta expidiendo el certificado?',
-      res: 'NO' // Respuesta por defecto ya que no conocemos el nombre
-    }
+    { pre: '¿ Cuanto es 3 X 3 ?', res: '9' }
   ]
 };
 
@@ -103,19 +99,19 @@ async function consultDocument(type, doc) {
   try {
     originalPage = await initWebConsult();
     currentPage = originalPage;
-    
+
     console.log('Esperando a que la página se cargue...');
     // Esperar por el estado de carga del DOM
     await currentPage.waitForFunction(
       () => document.readyState === 'complete',
       { timeout: 30000 }
     );
-    
+
     // Dar un pequeño tiempo adicional para que los scripts se ejecuten
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     console.log('Buscando el selector ddlTipoID...');
-    
+
     // Esperar a que el iframe se cargue si existe
     const frames = await currentPage.frames();
     for (const frame of frames) {
@@ -148,7 +144,7 @@ async function consultDocument(type, doc) {
     // Seleccionar tipo de documento
     await currentPage.select('#ddlTipoID', type);
     console.log('Tipo de documento seleccionado:', type);
-    
+
     await currentPage.type('#txtNumID', doc);
 
     // Manejar preguntas de verificación
@@ -159,7 +155,10 @@ async function consultDocument(type, doc) {
     while (!verified && attempts < MAX_VERIFICATION_ATTEMPTS) {
       try {
         await currentPage.waitForSelector('#lblPregunta', { timeout: 5000 });
-        const question = await currentPage.$eval('#lblPregunta', e => e.innerText);
+        const question = await currentPage.$eval(
+          '#lblPregunta',
+          e => e.innerText
+        );
         console.log('Pregunta recibida:', question);
 
         // Agregar preguntas dinámicas sobre el documento
@@ -174,23 +173,27 @@ async function consultDocument(type, doc) {
           }
         ];
 
-        const allQuestions = [...CONSTANTS.QUESTIONS_ANSWERS, ...dynamicQuestions];
+        const allQuestions = [
+          ...CONSTANTS.QUESTIONS_ANSWERS,
+          ...dynamicQuestions
+        ];
         const answer = allQuestions.find(q => q.pre === question);
 
         if (!answer) {
           console.log('Pregunta no conocida, actualizando...');
           await currentPage.click('#ImageButton1');
-          
+
           // Esperar a que la pregunta cambie
           await currentPage.waitForFunction(
-            (currentQuestion) => {
-              const newQuestion = document.querySelector('#lblPregunta').innerText;
+            currentQuestion => {
+              const newQuestion =
+                document.querySelector('#lblPregunta').innerText;
               return newQuestion !== currentQuestion;
             },
-            { timeout: 5000 },
+            { timeout: 10000 },
             question
           );
-          
+
           attempts++;
           continue;
         }
@@ -198,50 +201,58 @@ async function consultDocument(type, doc) {
         console.log('Pregunta conocida encontrada, respondiendo:', answer.res);
         await currentPage.type('#txtRespuestaPregunta', answer.res);
         await currentPage.click('#btnConsultar');
-        
+
         // Esperar a que aparezca la validación o los datos
         try {
           await currentPage.waitForFunction(
             () => {
               const validation = document.querySelector('#ValidationSummary1');
-              const datos = document.querySelector('#divSec > div.datosConsultado > span');
+              const datos = document.querySelector(
+                '#divSec > div.datosConsultado > span'
+              );
               return validation || datos;
             },
             { timeout: 10000 }
           );
-          
+
           // Dar tiempo adicional para que se complete la carga
           await new Promise(resolve => setTimeout(resolve, 3000));
-          
+
           // Verificar si hay mensaje de validación
           const validationElement = await currentPage.$('#ValidationSummary1');
           if (validationElement) {
-            const validationText = await validationElement.evaluate(el => el.innerText);
-            verified = !/Falla la validación del CAPTCHA.|El valor ingresado para la respuesta no responde a la pregunta./.test(
-              validationText.trim()
+            const validationText = await validationElement.evaluate(
+              el => el.innerText
             );
+            verified =
+              !/Falla la validación del CAPTCHA.|El valor ingresado para la respuesta no responde a la pregunta./.test(
+                validationText.trim()
+              );
 
             if (!verified) {
               console.log('Verificación fallida, intentando de nuevo...');
               await currentPage.click('#ImageButton1');
-              
+
               // Esperar a que la pregunta cambie
               await currentPage.waitForFunction(
-                (currentQuestion) => {
-                  const newQuestion = document.querySelector('#lblPregunta').innerText;
+                currentQuestion => {
+                  const newQuestion =
+                    document.querySelector('#lblPregunta').innerText;
                   return newQuestion !== currentQuestion;
                 },
                 { timeout: 5000 },
                 question
               );
-              
+
               attempts++;
               continue;
             }
           }
-          
+
           // Si no hay error de validación, verificar si hay datos
-          const datosElement = await currentPage.$('#divSec > div.datosConsultado > span');
+          const datosElement = await currentPage.$(
+            '#divSec > div.datosConsultado > span'
+          );
           if (datosElement) {
             console.log('Datos encontrados, procediendo a extraer...');
             verified = true;
@@ -252,7 +263,6 @@ async function consultDocument(type, doc) {
             attempts++;
             continue;
           }
-          
         } catch (error) {
           console.error('Error esperando resultados:', error);
           verified = false;
@@ -262,12 +272,13 @@ async function consultDocument(type, doc) {
       } catch (error) {
         console.error('Error en el proceso de verificación:', error);
         await currentPage.click('#ImageButton1');
-        
+
         try {
           // Esperar a que la pregunta cambie
           await currentPage.waitForFunction(
-            (currentQuestion) => {
-              const newQuestion = document.querySelector('#lblPregunta').innerText;
+            currentQuestion => {
+              const newQuestion =
+                document.querySelector('#lblPregunta').innerText;
               return newQuestion !== currentQuestion;
             },
             { timeout: 5000 },
@@ -276,16 +287,20 @@ async function consultDocument(type, doc) {
         } catch (e) {
           console.error('Error esperando el cambio de pregunta:', e);
         }
-        
+
         attempts++;
         if (attempts >= MAX_VERIFICATION_ATTEMPTS) {
-          throw new Error('Se alcanzó el límite máximo de intentos de verificación');
+          throw new Error(
+            'Se alcanzó el límite máximo de intentos de verificación'
+          );
         }
       }
     }
 
     if (!verified) {
-      throw new Error('No se pudo completar la verificación después de varios intentos');
+      throw new Error(
+        'No se pudo completar la verificación después de varios intentos'
+      );
     }
 
     // Extraer información
@@ -307,14 +322,15 @@ async function consultDocument(type, doc) {
     const lastName = names.slice(2).join(' ').trim();
 
     return {
-      success: true,
-      docType: DOCUMENT_TYPES.get(type),  // Convertir el número al tipo de documento (CC, CE, etc.)
+      docType: DOCUMENT_TYPES.get(type), // Convertir el número al tipo de documento (CC, CE, etc.)
       docNumber: doc,
-      firstName,
-      lastName,
       fullName,
-      arrayName: names,
-      records: await extractRecords(currentPage)
+      additionalData: {
+        firstName,
+        lastName,
+        arrayName: names,
+        criminalRecord: await extractRecords(currentPage)
+      }
     };
   } catch (error) {
     console.error('Error en consulta de documento:', error);

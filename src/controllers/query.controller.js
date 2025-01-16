@@ -1,9 +1,5 @@
 const moment = require('moment');
-const {
-  documentQuery,
-  usuryRateQuery
-} = require('../utils/queries');
-const { consultPerson, consultCompany } = require('../utils/verifik');
+const { documentQuery, usuryRateQuery } = require('../utils/queries');
 const {
   getUsurys,
   createUsury,
@@ -14,27 +10,85 @@ const {
   createCompany,
   getCompanies
 } = require('../repositories/company.repository');
-
 const {
   getPerson,
   getPersons,
   createPerson
 } = require('../repositories/persons.repository');
+const {
+  getEntity,
+  createEntity
+} = require('../repositories/entities.repository');
 const { businessQuery } = require('../services/enterpriseQueryApi');
 const { checkUsuryRate } = require('../services/servicesQueryApi');
 const { companyQuery } = require('../utils/companies');
 
 const type = new Map();
 type.set('CC', '1');
+type.set('NIT', '2');
 type.set('CE', '4');
 type.set('PEP', '5');
 
 moment.locale('es');
 
+module.exports.entity = async (req, res) => {
+  try {
+    const { docType, docNumber } = req.body;
+
+    if (!docType || !docNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere tipo y número de documento'
+      });
+    }
+
+    // Verificar si ya existe la persona
+    const entity = await getEntity(docType, docNumber);
+    if (entity) return res.json(entity);
+
+    // Validar tipo de documento
+    if (!type.has(docType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tipo de documento no válido'
+      });
+    }
+
+    try {
+      const data = await businessQuery(type.get(docType), docNumber);
+      console.log('Datos recibidos de businessQuery:', data);
+
+      if (data && data?.docType) {
+        const savedEntity = await createEntity(data);
+        console.log(
+          savedEntity.toJSON(),
+          'Datos guardados en la base de datos...'
+        );
+
+        return res.json(savedEntity.toJSON());
+      } else {
+        throw new Error(data.message || 'No se pudieron obtener los datos');
+      }
+    } catch (error) {
+      console.error('Error en consulta de documento:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Error al consultar el documento'
+      });
+    }
+  } catch (error) {
+    console.error('Error general:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor'
+    });
+  }
+};
+
 module.exports.person = async (req, res) => {
   try {
     const { docType, docNumber } = req.body;
-    
+
     if (!docType || !docNumber) {
       return res.status(400).json({
         success: false,
@@ -55,14 +109,19 @@ module.exports.person = async (req, res) => {
     }
 
     try {
-      console.log('Consultando documento con tipo:', docType, 'número:', docNumber);
+      console.log(
+        'Consultando documento con tipo:',
+        docType,
+        'número:',
+        docNumber
+      );
       const data = await documentQuery(type.get(docType), docNumber);
       console.log('Datos recibidos de documentQuery:', data);
-      
+
       if (data && data.success) {
         console.log('Guardando persona en la base de datos...');
         const savedPerson = await createPerson({
-          docType: data.docType,  // Esto ya debería ser CC, CE, etc.
+          docType: data.docType, // Esto ya debería ser CC, CE, etc.
           docNumber: data.docNumber,
           firstName: data.firstName,
           lastName: data.lastName,
@@ -70,7 +129,7 @@ module.exports.person = async (req, res) => {
           arrayName: data.arrayName,
           Antecedentes: data.records
         });
-        
+
         return res.json(await getPerson(data.docType, data.docNumber));
       } else {
         throw new Error(data.message || 'No se pudieron obtener los datos');
@@ -154,7 +213,7 @@ module.exports.usury = async (req, res) => {
   const currentDate = moment().startOf('month').format('YYYY-MM-DD');
   const diff = moment().diff(month, 'months');
   let rate;
-  
+
   if (diff > 12) rate = await getUsurysBySearch({ date: month });
   else {
     rate = await getUsurysBySearch({ date: currentDate });
