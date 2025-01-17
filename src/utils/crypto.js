@@ -1,4 +1,5 @@
 const aes = require("aes-js");
+require('dotenv').config();
 
 const key = aes.utils.utf8.toBytes(process.env.AES_KEY);
 if (key.length !== 32)

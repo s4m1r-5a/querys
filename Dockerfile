@@ -27,8 +27,6 @@ RUN mkdir -p /usr/src/server
  RUN npm install
 
  COPY . .
- 
- EXPOSE 4000
 
 # Add user so we don't need --no-sandbox.
 RUN addgroup -S pptruser && adduser -S -G pptruser pptruser \

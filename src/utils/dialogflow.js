@@ -2,7 +2,10 @@ const dialogflow = require("@google-cloud/dialogflow");
 const fs = require("fs");
 const path = require("path");
 const nanoid = require("nanoid");
+require('dotenv').config();
+
 /**
+ * 
  * Debes de tener tu archivo con el nombre "chatbot-account.json" en la raíz del proyecto
  */
 let PROJECID;

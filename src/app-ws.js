@@ -1,3 +1,4 @@
+require('dotenv').config();
 const WebSocket = require('ws');
 const jwt = require('jsonwebtoken');
 const authCtrl = require('./controllers/auth.controller');
