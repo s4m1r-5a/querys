@@ -1,7 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { documentQuery } = require('../utils/queries');
-const { companyQuery } = require('../utils/companies');
+const { documentQuery, companyQuery } = require('../utils/queries');
+const { calculateVerificationDigit } = require('../utils/common');
 let token = '';
 
 dataDefaultEinforma = {
@@ -47,8 +47,7 @@ const transformBusinessQueryData = (data, dataEinforma) => {
 
   // Mapear los datos al nuevo formato
   const transformedData = {
-    personType:
-      registro.categoria === 'PERSONA NATURAL' ? 'NATURAL' : 'JURIDICA',
+    personType: registro.categoria === 'PERSONA NATURAL' ? 'NATURAL' : 'JURIDICA',
     docType: registro.tipo_documento === 'C.C.' ? 'CC' : 'NIT',
     docNumber: registro.nit,
     verifyDigit: registro.dv,
@@ -86,9 +85,7 @@ const transformBusinessQueryData = (data, dataEinforma) => {
 const consultCompanyData = async nit => {
   try {
     if (!token) {
-      const { headers } = await axios.post(
-        'https://ruesapi.rues.org.co/WEB2/api/Token/ObtenerToken'
-      );
+      const { headers } = await axios.post('https://ruesapi.rues.org.co/WEB2/api/Token/ObtenerToken');
       token = headers.tokenruesapi;
     }
 
@@ -143,7 +140,7 @@ const consultEinforma = async nit => {
   }
 };
 
-module.exports.businessQuery = async (type, doc) => {
+module.exports.entityQuery = async (type, doc) => {
   try {
     const dataEinforma = await consultEinforma(doc);
     const companyData = await consultCompanyData(doc);
@@ -164,6 +161,20 @@ module.exports.businessQuery = async (type, doc) => {
     } else if (!transformedData?.docNumber) {
       transformedData = await companyQuery(doc, 2);
     }
+
+    if (!transformedData?.docNumber && type == '2') {
+      const additionalData = transformedData?.additionalData;
+      transformedData = await documentQuery('1', doc);
+
+      if (additionalData) {
+        transformedData.additionalData = {
+          ...transformedData.additionalData,
+          ...additionalData
+        };
+      }
+    }
+
+    if (!transformedData?.verifyDigit) transformedData.verifyDigit = calculateVerificationDigit(doc);
 
     console.log(transformedData, 'transformedData');
 

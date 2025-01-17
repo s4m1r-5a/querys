@@ -1,4 +1,6 @@
+require('dotenv').config();
 const puppeteer = require('puppeteer');
+const OpenAI = require('openai');
 
 // Constantes globales
 const CONSTANTS = {
@@ -27,6 +29,11 @@ const DOCUMENT_TYPES = new Map([
   ['5', 'PEP'] // Permiso Especial de Permanencia
 ]);
 
+// Configure OpenAI (ensure to use environment variable for API key)
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY // Make sure to set this environment variable
+});
+
 // Clase principal para manejar el browser
 class BrowserManager {
   constructor() {
@@ -36,12 +43,8 @@ class BrowserManager {
   async initBrowser() {
     if (!this.browser) {
       this.browser = await puppeteer.launch({
-        args: [
-          '--no-sandbox',
-          '--disabled-setupid-sandbox',
-          '--disable-dev-shm-usage'
-        ],
-        headless: false, // Cambiado a false para ver el navegador
+        args: ['--no-sandbox', '--disabled-setupid-sandbox', '--disable-dev-shm-usage', '--start-maximized'], // '--window-size=1920,1080'
+        headless: true, // Cambiado a false para ver el navegador
         defaultViewport: null,
         slowMo: 50 // Agregado para ralentizar las acciones y verlas mejor
       });
@@ -62,64 +65,76 @@ class BrowserManager {
     }
     const page = await this.browser.newPage();
     await page.setDefaultNavigationTimeout(CONSTANTS.NAVIGATION_TIMEOUT);
+    // await page.setViewport({ width: 1920, height: 1080 });
+    // await page.setViewport({ width: 1040, height: 682 });
     return page;
   }
 }
 
 const browserManager = new BrowserManager();
 
-// Función para iniciar la consulta web
-async function initWebConsult(retryCount = 0) {
-  const page = await browserManager.createPage();
+// Función auxiliar para cambiar de pregunta
+async function getQuestionChange(page, question) {
+  await page.click('#ImageButton1');
 
+  // Esperar a que la pregunta cambie
+  await page.waitForFunction(
+    currentQuestion => {
+      document.getElementById('txtRespuestaPregunta').value = '';
+      const newQuestion = document.querySelector('#lblPregunta').innerText;
+      return newQuestion !== currentQuestion;
+    },
+    { timeout: 60000 },
+    question
+  );
+}
+
+// Función auxiliar para extraer antecedentes
+async function extractRecords(page) {
   try {
-    console.log('Navegando a la página...');
-    await page.goto(
-      'https://www.procuraduria.gov.co/Pages/Consulta-de-Antecedentes.aspx'
+    const hasRecords = await page.$('#divSec > div.SeccionAnt h2');
+    if (!hasRecords) {
+      return await page.$eval('#divSec > h2:nth-child(3)', e => e.innerText);
+    }
+
+    const records = await page.$$eval('#divSec > div.SeccionAnt > div.SessionNumSiri > h2, h3, tr', elements =>
+      elements.map(e => (/th|td/.test(e.innerHTML) ? e.innerText.split(/\t|\n/) : e.innerText))
     );
-    await page.setViewport({ width: 1040, height: 682 });
-    return page;
-  } catch (error) {
-    await page.close();
-    if (retryCount >= CONSTANTS.MAX_RETRIES) {
-      throw new Error(
-        `Failed to init web consult after ${CONSTANTS.MAX_RETRIES} retries`
+
+    if (records.length === 0) {
+      return await page.$$eval('#divSec > div.SeccionAnt > table > tbody > tr', rows =>
+        rows.map(r => r.innerText.split('\t'))
       );
     }
-    console.log(`Retry attempt ${retryCount + 1} due to: ${error.message}`);
-    await new Promise(resolve => setTimeout(resolve, CONSTANTS.RETRY_DELAY));
-    return initWebConsult(retryCount + 1);
+
+    return records;
+  } catch (error) {
+    console.error('Error extracting records:', error);
+    return 'Error al extraer antecedentes';
   }
 }
 
 // Función principal para consultar documentos
-async function consultDocument(type, doc) {
-  let originalPage = null;
-  let currentPage = null;
+async function consultDocument(page, type, doc) {
   try {
-    originalPage = await initWebConsult();
-    currentPage = originalPage;
-
+    console.log('Navegando a la página...');
     console.log('Esperando a que la página se cargue...');
-    // Esperar por el estado de carga del DOM
-    await currentPage.waitForFunction(
-      () => document.readyState === 'complete',
-      { timeout: 30000 }
-    );
-
-    // Dar un pequeño tiempo adicional para que los scripts se ejecuten
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await page.goto('https://www.procuraduria.gov.co/Pages/Consulta-de-Antecedentes.aspx', {
+      waitUntil: 'networkidle0',
+      timeout: 60000
+    });
 
     console.log('Buscando el selector ddlTipoID...');
+    // await page.waitForSelector('#ddlTipoID', { visible: true, timeout: 30000 });
 
     // Esperar a que el iframe se cargue si existe
-    const frames = await currentPage.frames();
+    const frames = await page.frames();
     for (const frame of frames) {
       try {
         const element = await frame.$('#ddlTipoID');
         if (element) {
           console.log('Elemento encontrado en un iframe');
-          currentPage = frame;
+          page = frame;
           break;
         }
       } catch (e) {
@@ -127,195 +142,92 @@ async function consultDocument(type, doc) {
       }
     }
 
-    // Intentar encontrar el elemento
-    try {
-      await currentPage.waitForFunction(
-        () => document.querySelector('#ddlTipoID') !== null,
-        { timeout: 10000 }
-      );
-      console.log('Elemento encontrado en el DOM');
-    } catch (e) {
-      console.error('Error al esperar el elemento:', e);
-      const html = await currentPage.content();
-      console.log('HTML de la página:', html);
-      throw new Error('No se pudo encontrar el elemento ddlTipoID');
-    }
-
     // Seleccionar tipo de documento
-    await currentPage.select('#ddlTipoID', type);
-    console.log('Tipo de documento seleccionado:', type);
-
-    await currentPage.type('#txtNumID', doc);
+    await page.select('#ddlTipoID', type);
+    await page.type('#txtNumID', doc);
+    await page.waitForSelector('#lblPregunta', { timeout: 5000 });
 
     // Manejar preguntas de verificación
     let verified = false;
     let attempts = 0;
     const MAX_VERIFICATION_ATTEMPTS = 10;
 
+    // Agregar preguntas dinámicas sobre el documento
+    const dynamicQuestions = [
+      {
+        pre: '¿Escriba los dos ultimos digitos del documento a consultar?',
+        res: doc.slice(-2)
+      },
+      {
+        pre: '¿Escriba los tres primeros digitos del documento a consultar?',
+        res: doc.slice(0, 3)
+      }
+    ];
+
+    const allQuestions = [...CONSTANTS.QUESTIONS_ANSWERS, ...dynamicQuestions];
+
     while (!verified && attempts < MAX_VERIFICATION_ATTEMPTS) {
       try {
-        await currentPage.waitForSelector('#lblPregunta', { timeout: 5000 });
-        const question = await currentPage.$eval(
-          '#lblPregunta',
-          e => e.innerText
-        );
+        const question = await page.$eval('#lblPregunta', e => e.innerText);
         console.log('Pregunta recibida:', question);
-
-        // Agregar preguntas dinámicas sobre el documento
-        const dynamicQuestions = [
-          {
-            pre: '¿Escriba los dos ultimos digitos del documento a consultar?',
-            res: doc.slice(-2)
-          },
-          {
-            pre: '¿Escriba los tres primeros digitos del documento a consultar?',
-            res: doc.slice(0, 3)
-          }
-        ];
-
-        const allQuestions = [
-          ...CONSTANTS.QUESTIONS_ANSWERS,
-          ...dynamicQuestions
-        ];
         const answer = allQuestions.find(q => q.pre === question);
 
         if (!answer) {
           console.log('Pregunta no conocida, actualizando...');
-          await currentPage.click('#ImageButton1');
-
-          // Esperar a que la pregunta cambie
-          await currentPage.waitForFunction(
-            currentQuestion => {
-              const newQuestion =
-                document.querySelector('#lblPregunta').innerText;
-              return newQuestion !== currentQuestion;
-            },
-            { timeout: 10000 },
-            question
-          );
+          await getQuestionChange(page, question);
 
           attempts++;
           continue;
         }
 
         console.log('Pregunta conocida encontrada, respondiendo:', answer.res);
-        await currentPage.type('#txtRespuestaPregunta', answer.res);
-        await currentPage.click('#btnConsultar');
+        await page.type('#txtRespuestaPregunta', answer.res);
+        await page.click('#btnConsultar');
 
-        // Esperar a que aparezca la validación o los datos
-        try {
-          await currentPage.waitForFunction(
-            () => {
-              const validation = document.querySelector('#ValidationSummary1');
-              const datos = document.querySelector(
-                '#divSec > div.datosConsultado > span'
-              );
-              return validation || datos;
-            },
-            { timeout: 10000 }
-          );
+        await page.waitForFunction(
+          () => !!document.getElementById('divSec') || !!document.getElementById('ValidationSummary1'),
+          { timeout: 60000 }
+        );
 
-          // Dar tiempo adicional para que se complete la carga
-          await new Promise(resolve => setTimeout(resolve, 3000));
+        const validationElement = await page.$('#ValidationSummary1');
+        const validationText = await validationElement.evaluate(el => el.innerText);
+        const texts = [
+          'Falla la validación del CAPTCHA.',
+          'El valor ingresado para la respuesta no responde a la pregunta.'
+        ];
 
-          // Verificar si hay mensaje de validación
-          const validationElement = await currentPage.$('#ValidationSummary1');
-          if (validationElement) {
-            const validationText = await validationElement.evaluate(
-              el => el.innerText
-            );
-            verified =
-              !/Falla la validación del CAPTCHA.|El valor ingresado para la respuesta no responde a la pregunta./.test(
-                validationText.trim()
-              );
+        const verifyText = texts.some(text => validationText.includes(text));
 
-            if (!verified) {
-              console.log('Verificación fallida, intentando de nuevo...');
-              await currentPage.click('#ImageButton1');
-
-              // Esperar a que la pregunta cambie
-              await currentPage.waitForFunction(
-                currentQuestion => {
-                  const newQuestion =
-                    document.querySelector('#lblPregunta').innerText;
-                  return newQuestion !== currentQuestion;
-                },
-                { timeout: 5000 },
-                question
-              );
-
-              attempts++;
-              continue;
-            }
-          }
-
-          // Si no hay error de validación, verificar si hay datos
-          const datosElement = await currentPage.$(
-            '#divSec > div.datosConsultado > span'
-          );
-          if (datosElement) {
-            console.log('Datos encontrados, procediendo a extraer...');
-            verified = true;
-          } else {
-            console.log('No se encontraron datos, intentando de nuevo...');
-            verified = false;
-            await currentPage.click('#ImageButton1');
-            attempts++;
-            continue;
-          }
-        } catch (error) {
-          console.error('Error esperando resultados:', error);
-          verified = false;
+        if (!validationText) {
+          console.log('Datos encontrados, procediendo a extraer...');
+          verified = true;
+          continue;
+        } else if (verifyText) {
+          console.log('Verificación fallida, intentando de nuevo...');
+          await getQuestionChange(page, question);
           attempts++;
           continue;
-        }
+        } else throw new Error(validationText);
       } catch (error) {
         console.error('Error en el proceso de verificación:', error);
-        await currentPage.click('#ImageButton1');
-
-        try {
-          // Esperar a que la pregunta cambie
-          await currentPage.waitForFunction(
-            currentQuestion => {
-              const newQuestion =
-                document.querySelector('#lblPregunta').innerText;
-              return newQuestion !== currentQuestion;
-            },
-            { timeout: 5000 },
-            question
-          );
-        } catch (e) {
-          console.error('Error esperando el cambio de pregunta:', e);
-        }
-
-        attempts++;
-        if (attempts >= MAX_VERIFICATION_ATTEMPTS) {
-          throw new Error(
-            'Se alcanzó el límite máximo de intentos de verificación'
-          );
-        }
+        throw error;
       }
     }
 
     if (!verified) {
-      throw new Error(
-        'No se pudo completar la verificación después de varios intentos'
-      );
+      throw new Error('No se pudo completar la verificación después de varios intentos');
     }
 
     // Extraer información
+    await page.waitForSelector('#divSec', { visible: true, timeout: 10000 });
     console.log('Extrayendo información...');
-    const names = await currentPage.$$eval(
-      '#divSec > div.datosConsultado > span',
-      elements => elements.map(e => e.innerText)
-    );
+    const names = await page.$$eval('#divSec > div.datosConsultado > span', elements => elements.map(e => e.innerText));
 
     if (!names.length) {
       console.log('No se encontraron nombres en la respuesta');
       throw new Error('No se encontraron datos en la respuesta');
     }
 
-    console.log('Nombres encontrados:', names);
     // Procesar nombres
     const fullName = names.join(' ').trim();
     const firstName = names.slice(0, 2).join(' ').trim();
@@ -329,84 +241,277 @@ async function consultDocument(type, doc) {
         firstName,
         lastName,
         arrayName: names,
-        criminalRecord: await extractRecords(currentPage)
+        criminalRecord: await extractRecords(page)
       }
     };
   } catch (error) {
     console.error('Error en consulta de documento:', error);
     return { success: false, message: error.message };
-  } finally {
-    if (originalPage && !originalPage.isClosed()) {
-      await originalPage.close();
-    }
   }
 }
 
-// Función auxiliar para extraer antecedentes
-async function extractRecords(page) {
+// Función principal de consulta de documentos
+async function documentQuery(type, doc) {
+  const page = await browserManager.createPage();
+
   try {
-    const hasRecords = await page.$('#divSec > div.SeccionAnt h2');
-    if (!hasRecords) {
-      return await page.$eval('#divSec > h2:nth-child(3)', e => e.innerText);
+    return await consultDocument(page, type, doc);
+  } catch (error) {
+    console.error('Error in document query:', error);
+    return { message: error.message };
+  } finally {
+    if (page && !page.isClosed()) await page.close();
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+// Función para realizar la Consulta en rues.org.co
+async function consultRues(page, nit) {
+  try {
+    // Navegar a la página
+    await page.goto('https://www.rues.org.co', { waitUntil: 'networkidle0', timeout: 10000 });
+
+    // Verificar si el campo búsqueda está presente
+    const searchInput = await page.$('#search');
+
+    if (!searchInput) {
+      console.log('Campo de búsqueda no encontrado, intentando recargar...');
+      await page.reload({ waitUntil: 'networkidle0' });
     }
 
-    const records = await page.$$eval(
-      '#divSec > div.SeccionAnt > div.SessionNumSiri > h2, h3, tr',
-      elements =>
-        elements.map(e =>
-          /th|td/.test(e.innerHTML) ? e.innerText.split(/\t|\n/) : e.innerText
-        )
+    // Esperar y escribir el NIT
+    await page.waitForSelector('#search', { visible: true, timeout: 10000 });
+    await page.type('#search', nit);
+
+    // Hacer clic en el botón de búsqueda
+    await page.evaluate(selector => {
+      const button = document.querySelector(selector);
+      if (button) button.click();
+    }, 'form button[type="submit"].btn-busqueda');
+
+    // Esperar a que la página cambie y aparezcan los resultados
+    await page.waitForFunction(
+      () => !!document.querySelector('.card-result') || !!document.querySelector('.alert-info'),
+      { timeout: 3000 }
     );
 
-    if (records.length === 0) {
-      return await page.$$eval(
-        '#divSec > div.SeccionAnt > table > tbody > tr',
-        rows => rows.map(r => r.innerText.split('\t'))
+    // Verificar si no hay resultados
+    const noResultsIni = await page.$('.alert-info');
+
+    if (noResultsIni) {
+      await page.click('#chk_cancelada');
+
+      // Hacer clic en el botón de búsqueda
+      await page.evaluate(selector => {
+        const button = document.querySelector(selector);
+        if (button) button.click();
+      }, 'form.filtro__inside button[type="submit"]');
+
+      // Esperar a que la página cambie y aparezcan los resultados
+      await page.waitForFunction(
+        () => !!document.querySelector('.card-result') || !!document.querySelector('.alert-info'),
+        { timeout: 30000 }
       );
+
+      // Verificar si no hay resultados
+      const noResultsIni2 = await page.$('.alert-info');
+      if (noResultsIni2) throw new Error('No se encontraron resultados, despues de la busqueda');
     }
 
-    return records;
+    // Esperar a que los resultados sean visibles
+    await page.waitForSelector('.card-result', { visible: true, timeout: 10000 });
+
+    // Encontrar y hacer clic en el enlace de detalles
+    await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('.card-result a'));
+      const link = links.find(a => a.href && a.href.includes('buscar'));
+      if (link) link.click();
+      else throw new Error('No se encontró el enlace de detalles');
+    });
+
+    // Esperar a que la página cambie y aparezcan los resultados
+    await page.waitForSelector('#detail-tabs-tabpane-pestana_general', { visible: true, timeout: 10000 });
+
+    // Esperar a que cargue la página de detalles
+    await page.waitForSelector('.registroapi', { visible: true, timeout: 10000 });
+
+    // Extraer información general
+    const datosConsultados = await page.evaluate(() => {
+      const datos = {
+        docType: 'NIT',
+        fullName: document.querySelector('h1.intro__nombre')?.textContent?.trim() || '',
+        additionalData: {}
+      };
+
+      const pestanaGeneral = document.querySelector('#detail-tabs-tabpane-pestana_general');
+
+      if (!pestanaGeneral) return;
+
+      const registros = pestanaGeneral.querySelectorAll('.registroapi');
+
+      registros.forEach(registro => {
+        const etiqueta = registro.querySelector('.registroapi__etiqueta')?.textContent?.trim();
+
+        const valor = registro.querySelector('.registroapi__valor')?.textContent?.trim();
+
+        if (!etiqueta || !valor) return;
+
+        switch (etiqueta) {
+          case 'Identificación':
+            const nitMatch = valor.match(/NIT (\d+)\s*-\s*(\d+)/);
+            console.log('nitMatch:', nitMatch);
+            if (nitMatch) {
+              datos.docNumber = nitMatch[1];
+              datos.verifyDigit = nitMatch[2];
+            }
+            break;
+          case 'Categoria de la Matrícula':
+            datos.personType = valor.toUpperCase() === 'PERSONA NATURAL' ? 'NATURAL' : 'JURIDICA';
+            datos.additionalData.category = valor;
+            break;
+          case 'Tipo de Sociedad':
+            datos.additionalData.societyType = valor;
+            break;
+          case 'Tipo Organización':
+            datos.additionalData.legalOrganization = valor;
+            break;
+          case 'Número de Matrícula':
+            datos.additionalData.tradeLicense = valor;
+            break;
+          case 'Estado de la matrícula':
+            datos.status = valor;
+            break;
+          case 'Fecha de Actualización':
+            datos.additionalData.tradeUpdateDate = valor;
+            break;
+          case 'Último año renovado':
+            datos.additionalData.lastRenewedYear = valor;
+            break;
+          case 'Cámara de Comercio':
+            datos.additionalData.city = valor;
+            break;
+          case 'Fecha de Matrícula':
+            datos.additionalData.foundationDate = valor;
+            break;
+          case 'Fecha de Vigencia':
+            datos.additionalData.expirationDate = valor;
+            break;
+          case 'Motivo Cancelación':
+            datos.additionalData.cancellationReason = valor;
+            break;
+        }
+      });
+
+      return datos;
+    });
+
+    // Extraer actividades-economicas
+    const actividades = await page.evaluate(() => {
+      const pestanaEconomica = document.querySelector('#detail-tabs-tabpane-pestana_economica');
+      if (!pestanaEconomica) return [];
+
+      return Array.from(pestanaEconomica.querySelectorAll('.registroapi'))
+        .map(reg => {
+          const codigo = reg.querySelector('.registroapi__etiqueta')?.textContent?.trim();
+          const descripcion = reg.querySelector('.registroapi__valor')?.textContent?.trim();
+          if (!codigo || !descripcion) return null;
+          return `${codigo} - ${descripcion}`;
+        })
+        .filter(Boolean);
+    });
+
+    datosConsultados.additionalData.activity = actividades;
+
+    // Extract information of representatives
+    const textorepresentantes = await page.evaluate(() => {
+      const legalDiv = document.querySelector('#detail-tabs-tabpane-pestana_representante .legal');
+
+      if (!legalDiv) return '';
+
+      return legalDiv.textContent;
+    });
+
+    // Incluir los datos restantes
+    if (datosConsultados?.personType === 'NATURAL') {
+      datosConsultados.additionalData = {
+        // Campos derivados del nombre
+        arrayName: datosConsultados.fullName.split(' '),
+        lastName: datosConsultados.fullName.split(' ').slice(-2).join(' '),
+        firstName: datosConsultados.fullName.split(' ').slice(0, -2).join(' '),
+        criminalRecord: 'No se encontró información',
+        ...datosConsultados.additionalData
+      };
+    }
+
+    if (!textorepresentantes) return datosConsultados;
+
+    // Use OpenAI to extract document information
+    const documentInfo = await extractDocumentInfo(textorepresentantes);
+
+    datosConsultados.additionalData.legalRepresentatives = documentInfo.extractedDocuments;
+
+    console.log('Datos consultados:', datosConsultados, textorepresentantes);
+
+    return datosConsultados;
   } catch (error) {
-    console.error('Error extracting records:', error);
-    return 'Error al extraer antecedentes';
+    console.error('Error en consultRues:', error);
+    throw error;
+  }
+}
+
+// Modify the document extraction logic to use OpenAI
+async function extractDocumentInfo(texto) {
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content:
+            "Extrae los cargos si se encuentran en el texto, nombres, números y tipos de documentos del siguiente texto. Devuelva un JSON con una matriz de documentos, cada uno de los cuales contiene 'position', 'name', 'docNumber' y 'docType'."
+        },
+        {
+          role: 'user',
+          content: texto
+        }
+      ],
+      response_format: { type: 'json_object' }
+    });
+
+    const extractedInfo = JSON.parse(response.choices[0].message.content);
+    // console.log('extractedInfo:', extractedInfo);
+
+    // Extract just the document numbers
+    const reprecntant = extractedInfo.documents.map(doc => doc.docNumber);
+
+    return {
+      docRepresentantes: reprecntant,
+      extractedDocuments: extractedInfo.documents,
+      texto: texto
+    };
+  } catch (error) {
+    console.error('Error extracting document info:', error);
+    return {
+      docRepresentantes: [],
+      texto: texto
+    };
+  }
+}
+
+// Función principal de consulta
+async function companyQuery(nit) {
+  const page = await browserManager.createPage();
+
+  try {
+    return await consultRues(page, nit);
+  } catch (error) {
+    console.error('Error en consulta de empresa:', error);
+    return { message: error.message };
+  } finally {
+    if (page && !page.isClosed()) await page.close();
   }
 }
 
 // Exportar funciones principales
-module.exports = {
-  async documentQuery(type, doc) {
-    try {
-      return await consultDocument(type, doc);
-    } catch (error) {
-      console.error('Error in document query:', error);
-      return { success: false, message: error.message };
-    }
-  },
-
-  async usuryRateQuery() {
-    let page = null;
-    try {
-      page = await browserManager.createPage();
-      await page.goto(
-        'https://www.larepublica.co/indicadores-economicos/bancos/tasa-de-usura'
-      );
-
-      const selector =
-        '#vue-container > div.InternaIndicadores > div > div.flex-grow-1.wrapContentBody > div > div > div.grid-container > div > div > div.d-flex.CardDetailIndicator.multiple > div > div:nth-child(1) > div.priceIndicator > div > div.flex-grow-1 > span.price';
-      await page.waitForSelector(selector);
-
-      const rate = await page.$eval(selector, el => el.innerText);
-      return { success: true, rate };
-    } catch (error) {
-      console.error('Error in usury rate query:', error);
-      return { success: false, message: error.message };
-    } finally {
-      if (page) await page.close();
-    }
-  },
-
-  // Método para cerrar el browser cuando sea necesario
-  async closeBrowser() {
-    await browserManager.closeBrowser();
-  }
-};
+module.exports = { documentQuery, companyQuery };

@@ -6,7 +6,7 @@ const {
 const getEntity = async (docType, docNumber) => {
   return await Entity.findOne({
     where: { [Op.and]: [{ docType, docNumber }] },
-    attributes: { exclude: ['id', 'updatedAt'] }
+    attributes: { exclude: ['updatedAt'] }
   });
 };
 
@@ -36,11 +36,11 @@ const createEntity = async newEntity => {
   }
 };
 
-const updateEntity = async (personId, newEntity) => {
-  const cEntity = await getEntityById(personId);
+const updateEntity = async (entityId, newEntity) => {
+  const cEntity = await getEntityById(entityId);
 
-  if (newEntity?.personType && newEntity?.personType !== cEntity.personType)
-    cEntity.personType = newEntity.personType;
+  if (newEntity?.entityType && newEntity?.entityType !== cEntity.entityType)
+    cEntity.entityType = newEntity.entityType;
 
   if (newEntity?.docType && newEntity?.docType !== cEntity.docType)
     cEntity.docType = newEntity.docType;

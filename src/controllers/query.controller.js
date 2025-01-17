@@ -1,27 +1,10 @@
 const moment = require('moment');
-const { documentQuery, usuryRateQuery } = require('../utils/queries');
-const {
-  getUsurys,
-  createUsury,
-  getUsurysBySearch
-} = require('../repositories/usurys.repository');
-const {
-  getCompany,
-  createCompany,
-  getCompanies
-} = require('../repositories/company.repository');
-const {
-  getPerson,
-  getPersons,
-  createPerson
-} = require('../repositories/persons.repository');
-const {
-  getEntity,
-  createEntity
-} = require('../repositories/entities.repository');
-const { businessQuery } = require('../services/enterpriseQueryApi');
+const { documentQuery, companyQuery } = require('../utils/queries');
+const { getUsurys, createUsury, getUsurysBySearch } = require('../repositories/usurys.repository');
+const { getPerson, getPersons, createPerson } = require('../repositories/persons.repository');
+const { getEntity, createEntity, updateEntity } = require('../repositories/entities.repository');
+const { entityQuery } = require('../services/entitiesQueryApi');
 const { checkUsuryRate } = require('../services/servicesQueryApi');
-const { companyQuery } = require('../utils/companies');
 
 const type = new Map();
 type.set('CC', '1');
@@ -34,54 +17,35 @@ moment.locale('es');
 module.exports.entity = async (req, res) => {
   try {
     const { docType, docNumber } = req.body;
+    const updated = req.body?.updated;
 
-    if (!docType || !docNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere tipo y número de documento'
-      });
-    }
+    if (!docType || !docNumber)
+      return res.status(400).json({ success: false, message: 'Se requiere tipo y número de documento' });
 
     // Verificar si ya existe la persona
     const entity = await getEntity(docType, docNumber);
-    if (entity) return res.json(entity);
+    if (entity && !updated) return res.json(entity);
 
     // Validar tipo de documento
-    if (!type.has(docType)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tipo de documento no válido'
-      });
-    }
+    if (!type.has(docType)) return res.status(400).json({ success: false, message: 'Tipo de documento no válido' });
 
     try {
-      const data = await businessQuery(type.get(docType), docNumber);
-      console.log('Datos recibidos de businessQuery:', data);
+      const data = await entityQuery(type.get(docType), docNumber);
 
-      if (data && data?.docType) {
+      if (data?.docType && updated && entity) {
+        const updatedEntity = await updateEntity(entity.id, data);
+        return res.json(updatedEntity.toJSON());
+      } else if (data && data?.docType) {
         const savedEntity = await createEntity(data);
-        console.log(
-          savedEntity.toJSON(),
-          'Datos guardados en la base de datos...'
-        );
-
         return res.json(savedEntity.toJSON());
-      } else {
-        throw new Error(data.message || 'No se pudieron obtener los datos');
-      }
+      } else throw new Error(data.message || 'No se pudieron obtener los datos');
     } catch (error) {
       console.error('Error en consulta de documento:', error);
-      return res.status(500).json({
-        success: false,
-        message: error.message || 'Error al consultar el documento'
-      });
+      return res.status(500).json({ success: false, message: error.message || 'Error al consultar el documento' });
     }
   } catch (error) {
     console.error('Error general:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    return res.status(500).json({ success: false, message: 'Error interno del servidor' });
   }
 };
 
@@ -97,7 +61,7 @@ module.exports.person = async (req, res) => {
     }
 
     // Verificar si ya existe la persona
-    const person = await getPerson(docType, docNumber);
+    const person = null; //await getPerson(docType, docNumber);
     if (person) return res.json(person);
 
     // Validar tipo de documento
@@ -109,12 +73,7 @@ module.exports.person = async (req, res) => {
     }
 
     try {
-      console.log(
-        'Consultando documento con tipo:',
-        docType,
-        'número:',
-        docNumber
-      );
+      console.log('Consultando documento con tipo:', docType, 'número:', docNumber);
       const data = await documentQuery(type.get(docType), docNumber);
       console.log('Datos recibidos de documentQuery:', data);
 
@@ -171,12 +130,8 @@ module.exports.company = async (req, res) => {
     }
 
     newBusiness.nit = nit;
-    newBusiness.actualizado = newBusiness.actualizado
-      ? moment(newBusiness.actualizado).format('YYYY-MM-DD')
-      : null;
-    newBusiness.date = newBusiness.date
-      ? moment(newBusiness.date).format('YYYY-MM-DD')
-      : null;
+    newBusiness.actualizado = newBusiness.actualizado ? moment(newBusiness.actualizado).format('YYYY-MM-DD') : null;
+    newBusiness.date = newBusiness.date ? moment(newBusiness.date).format('YYYY-MM-DD') : null;
 
     if (Array.isArray(newBusiness.representantes)) {
       for (let i = 0; i < newBusiness.representantes.length; i++) {
