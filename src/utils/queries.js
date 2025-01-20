@@ -118,29 +118,70 @@ async function extractRecords(page) {
 async function consultDocument(page, type, doc) {
   try {
     console.log('Navegando a la página...');
-    console.log('Esperando a que la página se cargue...');
     await page.goto('https://www.procuraduria.gov.co/Pages/Consulta-de-Antecedentes.aspx', {
       waitUntil: 'networkidle0',
       timeout: 60000
     });
 
-    console.log('Buscando el selector ddlTipoID...');
-    // await page.waitForSelector('#ddlTipoID', { visible: true, timeout: 30000 });
+    console.log('Esperando que la página cargue completamente...');
+    await new Promise(resolve => setTimeout(resolve, 8000));
 
-    // Esperar a que el iframe se cargue si existe
-    const frames = await page.frames();
-    for (const frame of frames) {
+    // Función auxiliar para verificar si el elemento existe
+    const checkElementExists = async (context) => {
       try {
-        const element = await frame.$('#ddlTipoID');
-        if (element) {
-          console.log('Elemento encontrado en un iframe');
-          page = frame;
-          break;
-        }
+        await context.waitForSelector('#ddlTipoID', { 
+          timeout: 5000,
+          visible: true 
+        });
+        return true;
       } catch (e) {
-        continue;
+        return false;
+      }
+    };
+
+    console.log('Buscando el selector ddlTipoID...');
+    
+    // Intentar encontrar el elemento en la página principal
+    let elementExists = await checkElementExists(page);
+    let targetContext = page;
+
+    if (!elementExists) {
+      console.log('Elemento no encontrado en la página principal, buscando en iframes...');
+      const frames = await page.frames();
+      console.log(`Encontrados ${frames.length} frames`);
+
+      for (const frame of frames) {
+        try {
+          const frameUrl = frame.url();
+          console.log('Verificando frame:', frameUrl);
+          
+          if (frameUrl.includes('Consulta-de-Antecedentes')) {
+            elementExists = await checkElementExists(frame);
+            if (elementExists) {
+              console.log('Elemento encontrado en iframe');
+              targetContext = frame;
+              break;
+            }
+          }
+        } catch (e) {
+          console.log('Error al buscar en frame:', e.message);
+          continue;
+        }
       }
     }
+
+    if (!elementExists) {
+      console.log('Intentando un último intento con refresco de página...');
+      await page.reload({ waitUntil: 'networkidle0' });
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      elementExists = await checkElementExists(page);
+      if (!elementExists) {
+        throw new Error('No se pudo encontrar el elemento ddlTipoID después de múltiples intentos');
+      }
+    }
+
+    console.log('Elemento ddlTipoID encontrado, procediendo con la selección...');
+    page = targetContext;
 
     // Seleccionar tipo de documento
     await page.select('#ddlTipoID', type);
@@ -184,11 +225,17 @@ async function consultDocument(page, type, doc) {
         await page.type('#txtRespuestaPregunta', answer.res);
         await page.click('#btnConsultar');
 
+        let element = false;
         await page.waitForFunction(
-          () => !!document.getElementById('divSec') || !!document.getElementById('ValidationSummary1'),
+          () => {
+            if (!!document.getElementById('divSec')) element = '#divSec';
+            else if (!!document.getElementById('ValidationSummary1')) element = '#ValidationSummary1';
+            return element;
+          },
           { timeout: 60000 }
         );
-
+        console.log('Selector encontrado:', element);
+        await page.waitForSelector(element, { visible: true, timeout: 30000 });
         const validationElement = await page.$('#ValidationSummary1');
         const validationText = await validationElement.evaluate(el => el.innerText);
         const texts = [
@@ -209,7 +256,7 @@ async function consultDocument(page, type, doc) {
           continue;
         } else throw new Error(validationText);
       } catch (error) {
-        console.error('Error en el proceso de verificación:', error);
+        // console.error('Error en el proceso de verificación:', error);
         throw error;
       }
     }
