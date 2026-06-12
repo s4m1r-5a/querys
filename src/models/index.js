@@ -7,22 +7,22 @@ const Sequelize = require('sequelize');
 const basename = path.basename(__filename);
 // Configuracion
 const config = require('../database/config/database');
-const NODE_ENV = process.env.NODE_ENV;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const dbConfig = config[NODE_ENV] || config.development;
 
 // Declaracion del objeto DB
 const db = {};
 
 // Inicializar la conexión
 const sequelize = new Sequelize(
-  config[NODE_ENV].database,
-  config[NODE_ENV].username,
-  config[NODE_ENV].password,
+  dbConfig.database,
+  dbConfig.username,
+  dbConfig.password,
   {
-    dialect: config[NODE_ENV].dialect,
-    host: config[NODE_ENV].host,
-    port: config[NODE_ENV].port || 3306,
-    logging: config[NODE_ENV].logging === 'true',
-    logging: true
+    dialect: dbConfig.dialect,
+    host: dbConfig.host,
+    port: dbConfig.port || 3306,
+    logging: process.env.DB_LOGS === 'true'
   }
 );
 
@@ -37,7 +37,6 @@ fs.readdirSync(__dirname)
       sequelize,
       Sequelize.DataTypes
     );
-    console.log(model.name);
     // Cada modelo que hay en el directorio se vincula al objeto DB
     db[model.name] = model;
   });

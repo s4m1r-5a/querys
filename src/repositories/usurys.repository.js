@@ -24,41 +24,13 @@ const createUsury = async newUsury => {
     return { usury, created };
   } catch (error) {
     console.log(error.message);
-    return error.message;
+    throw error;
   }
-};
-
-const updateUsury = async (userId, newUsury) => {
-  const cUsury = await getUsuryById(userId);
-
-  if (newUsury.fullName && newUsury.fullName !== cUsury.fullName)
-    cUsury.fullName = newUsury.fullName;
-
-  if (newUsury.email && newUsury.email !== cUsury.email)
-    cUsury.email = newUsury.email;
-
-  if (newUsury.avatar && newUsury.avatar !== cUsury.avatar)
-    cUsury.avatar = newUsury.avatar;
-
-  try {
-    await cUsury.save();
-    return cUsury;
-  } catch (error) {
-    console.log(error.message);
-    return error.message;
-  }
-
-  /* if (!newUsury.secretKey) newUsury.secretKey = cUsury.secretKey;
-  else if (newUsury.secretKey) {
-    newUsury.secretKey = encrypt(newUsury.secretKey);
-    clearUsurysCache(id);
-  } */
 };
 
 module.exports = {
   getUsurys,
   createUsury,
-  updateUsury,
   getDefaultUsurys,
   getUsurysBySearch
 };

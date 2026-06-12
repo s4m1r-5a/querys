@@ -26,12 +26,12 @@ module.exports.calculateVerificationDigit = nit => {
   }
 
   let sum = 0;
+  const startFactorIndex = factors.length - nitStr.length;
 
-  // Iterar sobre cada dígito del NIT de derecha a izquierda
   for (let i = 0; i < nitStr.length; i++) {
-    const digit = parseInt(nitStr[nitStr.length - 1 - i], 10); // Obtener el dígito actual
-    const factor = factors[i] || 0; // Usar 0 si no hay más factores disponibles
-    sum += digit * factor; // Sumar el producto del dígito por el factor
+    const digit = parseInt(nitStr[i], 10);
+    const factor = factors[startFactorIndex + i] || 0;
+    sum += digit * factor;
   }
 
   // Calcular el residuo de la suma módulo 11
@@ -41,4 +41,35 @@ module.exports.calculateVerificationDigit = nit => {
   const verificationDigit = remainder > 1 ? 11 - remainder : remainder;
 
   return verificationDigit;
+};
+
+const DOCUMENT_TYPES = new Set(['CC', 'CE', 'PEP', 'NIT']);
+
+module.exports.normalizeDocType = docType => {
+  const normalizedType = String(docType || '').trim().toUpperCase();
+
+  if (!DOCUMENT_TYPES.has(normalizedType)) {
+    throw new Error('Tipo de documento no valido');
+  }
+
+  return normalizedType;
+};
+
+module.exports.normalizeDocument = (docNumber, docType) => {
+  const rawDocument = String(docNumber || '').trim();
+  const onlyDigits = rawDocument.replace(/\D/g, '');
+
+  if (!onlyDigits) throw new Error('Numero de documento no valido');
+
+  if (docType === 'NIT' && onlyDigits.length > 9) {
+    return onlyDigits.slice(0, -1);
+  }
+
+  return onlyDigits;
+};
+
+module.exports.formatEntityResponse = entity => {
+  if (!entity) return null;
+  if (typeof entity.toJSON === 'function') return entity.toJSON();
+  return entity;
 };

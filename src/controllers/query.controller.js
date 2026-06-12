@@ -1,184 +1,194 @@
 const moment = require('moment');
-const { documentQuery, companyQuery } = require('../utils/queries');
-const { getUsurys, createUsury, getUsurysBySearch } = require('../repositories/usurys.repository');
-const { getPerson, getPersons, createPerson } = require('../repositories/persons.repository');
-const { getEntity, createEntity, updateEntity } = require('../repositories/entities.repository');
-const { entityQuery } = require('../services/entitiesQueryApi');
+const {
+  documentQuery,
+  companyQuery,
+  answerDocumentChallenge
+} = require('../utils/queries');
+const {
+  getUsurys,
+  createUsury,
+  getUsurysBySearch
+} = require('../repositories/usurys.repository');
+const {
+  getEntity,
+  createEntity,
+  updateEntity
+} = require('../repositories/entities.repository');
 const { checkUsuryRate } = require('../services/servicesQueryApi');
-
-const type = new Map();
-type.set('CC', '1');
-type.set('NIT', '2');
-type.set('CE', '4');
-type.set('PEP', '5');
+const {
+  normalizeDocument,
+  normalizeDocType,
+  formatEntityResponse
+} = require('../utils/common');
+const {
+  ChallengeRequiredError,
+  ChallengeExpiredError
+} = require('../utils/challengeStore');
 
 moment.locale('es');
 
-module.exports.entity = async (req, res) => {
-  try {
-    const { docType, docNumber } = req.body;
-    const updated = req.body?.updated;
+const queryDocument = async ({ docType, docNumber, updated = false }) => {
+  const normalizedType = normalizeDocType(docType);
+  const normalizedNumber = normalizeDocument(docNumber, normalizedType);
 
-    if (!docType || !docNumber)
-      return res.status(400).json({ success: false, message: 'Se requiere tipo y número de documento' });
+  const cachedEntity = await getEntity(normalizedType, normalizedNumber);
+  if (cachedEntity && !updated) return cachedEntity;
 
-    // Verificar si ya existe la persona
-    const entity = await getEntity(docType, docNumber);
-    if (entity && !updated) return res.json(entity);
+  const data =
+    normalizedType === 'NIT'
+      ? await companyQuery(normalizedNumber)
+      : await documentQuery(normalizedType, normalizedNumber);
 
-    // Validar tipo de documento
-    if (!type.has(docType)) return res.status(400).json({ success: false, message: 'Tipo de documento no válido' });
+  if (data instanceof ChallengeRequiredError) throw data;
 
-    try {
-      const data = await entityQuery(type.get(docType), docNumber);
-
-      if (data?.docType && updated && entity) {
-        const updatedEntity = await updateEntity(entity.id, data);
-        return res.json(updatedEntity.toJSON());
-      } else if (data && data?.docType) {
-        const savedEntity = await createEntity(data);
-        return res.json(savedEntity.toJSON());
-      } else throw new Error(data.message || 'No se pudieron obtener los datos');
-    } catch (error) {
-      console.error('Error en consulta de documento:', error);
-      return res.status(500).json({ success: false, message: error.message || 'Error al consultar el documento' });
-    }
-  } catch (error) {
-    console.error('Error general:', error);
-    return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+  if (!data || data.success === false || !data.docType || !data.docNumber) {
+    throw new Error(data?.message || 'No se pudieron obtener los datos');
   }
+
+  if (cachedEntity) return updateEntity(cachedEntity.id, data);
+  return createEntity(data);
 };
 
-module.exports.person = async (req, res) => {
+module.exports.document = async (req, res) => {
   try {
-    const { docType, docNumber } = req.body;
+    const { docType, docNumber, updated, acceptedPersonalDataTreatment } = req.body;
 
     if (!docType || !docNumber) {
       return res.status(400).json({
         success: false,
-        message: 'Se requiere tipo y número de documento'
+        message: 'Se requiere tipo y numero de documento'
       });
     }
 
-    // Verificar si ya existe la persona
-    const person = null; //await getPerson(docType, docNumber);
-    if (person) return res.json(person);
-
-    // Validar tipo de documento
-    if (!type.has(docType)) {
+    if (!acceptedPersonalDataTreatment) {
       return res.status(400).json({
         success: false,
-        message: 'Tipo de documento no válido'
+        message: 'Se requiere aceptar el tratamiento de datos personales'
       });
     }
 
-    try {
-      console.log('Consultando documento con tipo:', docType, 'número:', docNumber);
-      const data = await documentQuery(type.get(docType), docNumber);
-      console.log('Datos recibidos de documentQuery:', data);
+    const entity = await queryDocument({ docType, docNumber, updated });
 
-      if (data && data.success) {
-        console.log('Guardando persona en la base de datos...');
-        const savedPerson = await createPerson({
-          docType: data.docType, // Esto ya debería ser CC, CE, etc.
-          docNumber: data.docNumber,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          fullName: data.fullName,
-          arrayName: data.arrayName,
-          Antecedentes: data.records
-        });
-
-        return res.json(await getPerson(data.docType, data.docNumber));
-      } else {
-        throw new Error(data.message || 'No se pudieron obtener los datos');
-      }
-    } catch (error) {
-      console.error('Error en consulta de documento:', error);
-      return res.status(500).json({
-        success: false,
-        message: error.message || 'Error al consultar el documento'
-      });
-    }
+    return res.json({
+      success: true,
+      data: formatEntityResponse(entity)
+    });
   } catch (error) {
-    console.error('Error general:', error);
-    return res.status(500).json({
+    if (error instanceof ChallengeRequiredError) {
+      return res.status(409).json({
+        success: false,
+        code: error.code,
+        challenge: error.challenge
+      });
+    }
+
+    const status = /no valido|required|requiere/i.test(error.message) ? 400 : 500;
+    if (status >= 500) console.error('Error en consulta de documento:', error);
+
+    return res.status(status).json({
       success: false,
-      message: 'Error interno del servidor'
+      message: error.message || 'Error al consultar el documento'
     });
   }
+};
+
+module.exports.answerDocumentChallenge = async (req, res) => {
+  try {
+    const { sessionId, answer } = req.body;
+
+    if (!sessionId || !answer) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere sessionId y answer'
+      });
+    }
+
+    const data = await answerDocumentChallenge(sessionId, answer);
+    const cachedEntity = await getEntity(data.docType, data.docNumber);
+    const entity = cachedEntity
+      ? await updateEntity(cachedEntity.id, data)
+      : await createEntity(data);
+
+    return res.json({
+      success: true,
+      data: formatEntityResponse(entity)
+    });
+  } catch (error) {
+    if (error instanceof ChallengeRequiredError) {
+      return res.status(409).json({
+        success: false,
+        code: error.code,
+        challenge: error.challenge
+      });
+    }
+
+    if (error instanceof ChallengeExpiredError) {
+      return res.status(410).json({
+        success: false,
+        code: error.code,
+        message: error.message
+      });
+    }
+
+    if (error.code === 'CHALLENGE_ANSWER_REJECTED') {
+      return res.status(422).json({
+        success: false,
+        code: error.code,
+        message: error.message
+      });
+    }
+
+    console.error('Error resolviendo pregunta de documento:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al resolver la pregunta del documento'
+    });
+  }
+};
+
+module.exports.person = async (req, res) => {
+  req.body.docType = req.body.docType || 'CC';
+  return module.exports.document(req, res);
 };
 
 module.exports.company = async (req, res) => {
-  try {
-    const { nit, method } = req.body;
-
-    if (!nit) {
-      return res.status(400).json({
-        success: false,
-        message: 'NIT es requerido'
-      });
-    }
-
-    const newBusiness = await companyQuery(nit, method);
-
-    if (!newBusiness) {
-      return res.status(404).json({
-        success: false,
-        message: `No se encontraron resultados para el NIT ${nit}`
-      });
-    }
-
-    newBusiness.nit = nit;
-    newBusiness.actualizado = newBusiness.actualizado ? moment(newBusiness.actualizado).format('YYYY-MM-DD') : null;
-    newBusiness.date = newBusiness.date ? moment(newBusiness.date).format('YYYY-MM-DD') : null;
-
-    if (Array.isArray(newBusiness.representantes)) {
-      for (let i = 0; i < newBusiness.representantes.length; i++) {
-        const person = newBusiness.representantes[i];
-        try {
-          const createdPerson = await createPerson(person);
-          if (!i) newBusiness.agent = createdPerson.id || false;
-          else if (!newBusiness.agent) {
-            newBusiness.agent = createdPerson.id;
-          }
-        } catch (personError) {
-          console.error(`Error creando representante ${i}:`, personError);
-        }
-      }
-    }
-
-    res.json({
-      success: true,
-      data: newBusiness
-    });
-  } catch (error) {
-    console.error('Error en consulta de empresa:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno al consultar la empresa'
-    });
-  }
+  req.body.docType = 'NIT';
+  req.body.docNumber = req.body.docNumber || req.body.nit;
+  return module.exports.document(req, res);
 };
 
 module.exports.usury = async (req, res) => {
-  const { date } = req.body;
-  if (!date) return res.json(await getUsurys());
-  const month = moment(date).startOf('month').format('YYYY-MM-DD');
-  const currentDate = moment().startOf('month').format('YYYY-MM-DD');
-  const diff = moment().diff(month, 'months');
-  let rate;
+  try {
+    const { date } = req.body;
+    if (!date) {
+      return res.json({
+        success: true,
+        data: await getUsurys()
+      });
+    }
 
-  if (diff > 12) rate = await getUsurysBySearch({ date: month });
-  else {
-    rate = await getUsurysBySearch({ date: currentDate });
+    const month = moment(date).startOf('month').format('YYYY-MM-DD');
+    let rate = await getUsurysBySearch({ date: month });
+
     if (!rate) {
       const data = await checkUsuryRate(month);
-      const { usury, created } = await createUsury(data);
-      rate = data;
-    }
-  }
-  res.json(rate ? rate : false);
-};
+      if (!data || typeof data === 'string' || data.error) {
+        throw new Error(data?.error || data || 'No se pudo consultar la tasa de usura');
+      }
 
-//module.exports = type;
+      const created = await createUsury(data);
+      rate = created.usury || data;
+    }
+
+    return res.json({
+      success: true,
+      data: rate
+    });
+  } catch (error) {
+    console.error('Error en consulta de usura:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al consultar la tasa de usura'
+    });
+  }
+};

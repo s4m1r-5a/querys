@@ -1,39 +1,22 @@
 services:
   servidor:
-    container_name: QueiesApi
+    container_name: document-query-api
     restart: always
     build: .
+    init: true
+    shm_size: "1gb"
     ports:
-      - "9000:3000"
-    volumes:
-      - ./src:/usr/src/app/src:rw
+      - "${HOST_PORT:-9000}:${PORT:-9000}"
+    env_file:
+      - .env
     environment:
-      PORT: ${PORT}
-      AES_KEY: ${AES_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRES: ${JWT_EXPIRES}
-      NODE_ENV: ${NODE_ENV}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PWD: ${DB_PWD}
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_DIALECT: ${DB_DIALECT}
-      DB_LOGS: ${DB_LOGS}
-      ESLINT_NO_DEV_ERRORS: ${ESLINT_NO_DEV_ERRORS}
-      MONGODB_URI: ${MONGODB_URI}
-      FRISTNAME: ${FRISTNAME}
-      LASTNAME: ${LASTNAME}
-      USERNAME: ${USERNAME}
-      EMAIL: ${EMAIL}
-      PASSWORD: ${PASSWORD}
-      DOCUMET: ${DOCUMET}
-      PHONE: ${PHONE}
-      NAME: ${NAME}
-      ALIAS: ${ALIAS}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_PORT: ${SMTP_PORT}
-      SMTP_SECURE: ${SMTP_SECURE}
-      SMTP_AUTH_USER: ${SMTP_AUTH_USER}
-      SMTP_AUTH_PASS: ${SMTP_AUTH_PASS}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      PORT: ${PORT:-9000}
+      NODE_ENV: ${NODE_ENV:-production}
+      BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:$${PORT:-9000}/api || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3

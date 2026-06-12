@@ -24,9 +24,5 @@ module.exports = (sequelize, DataTypes) => {
     { tableName: 'usurys', timestamps: false }
   );
 
-  Usury.associate = function (models) {
-    //User.hasOne(models.Person, { as: 'person', foreignKey: 'user_id' });
-  };
-
   return Usury;
 };

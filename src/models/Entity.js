@@ -18,12 +18,12 @@ module.exports = (sequelize, DataTypes) => {
       docNumber: {
         type: DataTypes.STRING,
         allowNull: false,
-        validate: { is: /^\s?[0-9]+\s?/, len: [6, 13] }
+        validate: { is: /^\s?[0-9]+\s?$/, len: [6, 13] }
       },
       verifyDigit: {
         type: DataTypes.STRING,
         defaultValue: null,
-        validate: { is: /^\s?[0-9]+\s?/, len: [1, 2] }
+        validate: { is: /^\s?[0-9]+\s?$/, len: [1, 2] }
       },
       fullName: {
         type: DataTypes.STRING,

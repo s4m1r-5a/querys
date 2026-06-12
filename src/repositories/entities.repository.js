@@ -32,15 +32,17 @@ const createEntity = async newEntity => {
     return entity;
   } catch (error) {
     console.log(error.message);
-    return error.message;
+    throw error;
   }
 };
 
 const updateEntity = async (entityId, newEntity) => {
   const cEntity = await getEntityById(entityId);
 
-  if (newEntity?.entityType && newEntity?.entityType !== cEntity.entityType)
-    cEntity.entityType = newEntity.entityType;
+  if (!cEntity) throw new Error('Entidad no encontrada');
+
+  if (newEntity?.personType && newEntity?.personType !== cEntity.personType)
+    cEntity.personType = newEntity.personType;
 
   if (newEntity?.docType && newEntity?.docType !== cEntity.docType)
     cEntity.docType = newEntity.docType;
@@ -71,7 +73,7 @@ const updateEntity = async (entityId, newEntity) => {
     return cEntity;
   } catch (error) {
     console.log(error.message);
-    return error.message;
+    throw error;
   }
 };
 
