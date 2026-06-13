@@ -14,23 +14,28 @@
  * 4. Determina el dígito de verificación según reglas específicas
  */
 module.exports.calculateVerificationDigit = nit => {
-  // Factores predefinidos por la DIAN
-  const factors = [71, 67, 59, 53, 47, 43, 41, 37, 29, 23, 19, 17, 13, 7, 3];
+  // Factores en orden correcto, aplicados de derecha a izquierda.
+  const factors = [3, 7, 13, 17, 19, 23, 29, 37, 41, 43, 47, 53, 59, 67, 71];
 
   // Convertir el NIT a string para evitar problemas con números grandes
-  const nitStr = String(nit);
+  const nitStr = String(nit).trim().replace(/[-\s]/g, '');
 
   // Validar que el NIT contenga solo números
   if (!/^\d+$/.test(nitStr)) {
-    throw new Error('The NIT must contain only numbers.');
+    throw new Error('El NIT debe contener solo números.');
+  }
+
+  // NITs colombianos tipicamente tienen entre 8 y 10 digitos.
+  if (nitStr.length < 8 || nitStr.length > 10) {
+    console.warn(`NIT con longitud inusual: ${nitStr.length} digitos`);
   }
 
   let sum = 0;
-  const startFactorIndex = factors.length - nitStr.length;
 
+  // Iterar sobre cada digito del NIT de derecha a izquierda.
   for (let i = 0; i < nitStr.length; i++) {
-    const digit = parseInt(nitStr[i], 10);
-    const factor = factors[startFactorIndex + i] || 0;
+    const digit = parseInt(nitStr[nitStr.length - 1 - i], 10);
+    const factor = factors[i % factors.length];
     sum += digit * factor;
   }
 
@@ -38,7 +43,7 @@ module.exports.calculateVerificationDigit = nit => {
   const remainder = sum % 11;
 
   // Determinar el dígito de verificación según las reglas del módulo 11
-  const verificationDigit = remainder > 1 ? 11 - remainder : remainder;
+  const verificationDigit = remainder <= 1 ? remainder : 11 - remainder;
 
   return verificationDigit;
 };

@@ -41,5 +41,12 @@ describe('document helpers', () => {
     expect(calculateVerificationDigit('900304238')).toBe(6);
     expect(calculateVerificationDigit('901626166')).toBe(1);
     expect(calculateVerificationDigit('901600406')).toBe(1);
+    expect(calculateVerificationDigit('900682258')).toBe(3);
+    expect(calculateVerificationDigit('901638010')).toBe(1);
+  });
+
+  test('calculates NIT verification digit with frontend-compatible formatting', () => {
+    expect(calculateVerificationDigit(' 900 304 238 ')).toBe(6);
+    expect(calculateVerificationDigit('901-600-406')).toBe(1);
   });
 });
